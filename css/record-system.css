@@ -186,8 +186,22 @@ body[data-record-view="group"] .record-card .record-expanded-panel{display:flex}
 .record-preview-table td{background:#fff}
 .record-preview-docx{padding-bottom:30px}.docx-content{max-width:860px;margin:18px auto;padding:28px;background:#fff;color:#27364a;font-size:10px;line-height:1.65;box-shadow:0 1px 6px rgba(15,23,42,.06)}
 .docx-content h1,.docx-content h2,.docx-content h3{margin:1.1em 0 .45em;color:#14283e}.docx-content p{margin:.5em 0}.docx-content table{width:100%;border-collapse:collapse}.docx-content td,.docx-content th{border:1px solid #d8e1eb;padding:6px}
-.record-preview-pptx{padding-bottom:30px}.pptx-slide-preview{width:min(900px,94%);margin:18px auto;padding:12px;background:#fff;border:1px solid #d8e1eb;border-radius:10px;box-shadow:0 1px 7px rgba(15,23,42,.07)}
-.pptx-slide-number{font:800 7px "JetBrains Mono",monospace;letter-spacing:.08em;color:#718096;margin:2px 4px 9px}.pptx-slide-canvas{position:relative;width:100%;overflow:hidden;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:inset 0 0 0 1px #f8fafc}.pptx-text-box{overflow:hidden;padding:1.2%;display:flex;align-items:flex-start;color:#20354b;font-size:clamp(8px,1.25vw,15px);line-height:1.2;font-weight:650;white-space:pre-wrap;overflow-wrap:anywhere}.pptx-empty-slide{position:absolute;inset:0;display:grid;place-items:center;padding:20px;text-align:center;color:#8794a4;font-size:9px}
+
+/* Presentation Canvas Styles */
+.record-preview-pptx{width:100%;height:100%;overflow-y:auto;background:#f1f5f9;padding:16px 0 40px}
+.pptx-slide-preview{width:min(940px,94%);margin:16px auto;padding:12px;background:#fff;border:1px solid #d8e1eb;border-radius:10px;box-shadow:0 2px 8px rgba(15,23,42,.07)}
+.pptx-slide-number{font:800 8px/1 "JetBrains Mono",monospace;letter-spacing:.08em;color:#64748b;margin:2px 4px 10px;text-transform:uppercase}
+.pptx-slide-canvas{position:relative;width:100%;min-height:280px;overflow:hidden;background:#ffffff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:inset 0 0 0 1px #f8fafc}
+.pptx-slide-canvas.is-flow{display:flex;flex-direction:column;gap:12px;padding:24px 28px;min-height:auto}
+.pptx-text-box{overflow:hidden;padding:1%;color:#1e293b;font-size:clamp(9px,1.2vw,15px);line-height:1.35;font-weight:550;white-space:pre-wrap;overflow-wrap:anywhere}
+.pptx-text-box.is-absolute{position:absolute}
+.pptx-text-box.is-flow{position:relative;padding:6px 0;font-size:11px;line-height:1.5}
+.pptx-slide-image{max-width:100%;max-height:100%;object-fit:contain}
+.pptx-slide-image.is-absolute{position:absolute}
+.pptx-slide-image.is-flow{position:relative;display:block;margin:10px auto;max-height:380px}
+.pptx-table-wrap{width:100%;overflow-x:auto;margin:8px 0}
+.pptx-empty-slide{padding:40px 20px;text-align:center;color:#94a3b8;font-size:10px}
+
 .preview-fallback-actions{display:flex;justify-content:center;margin-top:8px}
 .preview-file-fallback .preview-fallback-name{font:800 9px "JetBrains Mono",monospace;color:#53667b;max-width:520px;overflow-wrap:anywhere}
 .preview-media{width:min(820px,94%);display:grid;place-items:center;gap:12px;padding:24px}.preview-media audio{width:min(620px,100%)}.preview-media video{width:min(820px,100%);max-height:58vh;background:#07101b;border-radius:8px}
