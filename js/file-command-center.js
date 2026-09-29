@@ -1,7 +1,7 @@
 import {MODEL_ORDER, RECORD_ORDER, createDefaultData} from "../data/models.js";
 import {getLatestFile, resolveLatestFileMetadata, getAuditLogs, addAudit} from "./database.js";
 import {downloadBlob, formatBytes, escapeHtml} from "./ui.js";
-import {resolvePreviewFile,renderPreview,clearPreviewContainer} from "./preview/preview-controller.js?v=PREVIEW-REBUILT";
+import {resolvePreviewFile,renderPreview,clearPreviewContainer} from "./preview/preview-controller.js?v=PREVIEW-RUNTIME-20260929-01";
 
 /*
   Isolated File Command Center.
