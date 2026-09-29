@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Mobile R&D Technical Hub — clean engineering workspace">
+  <title>Mobile R&D Technical Hub</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/dashboard.css?v=V8-PREVIEW-SETTINGS-FIX-2">
+  <link rel="stylesheet" href="css/lab-knowledge.css?v=V1-CLEAN">
+  <link rel="stylesheet" href="css/modular-features.css?v=V1-CLEAN">
+  <link rel="stylesheet" href="css/model-comparison.css?v=V1-CLEAN">
+  <link rel="stylesheet" href="css/record-system.css?v=PREVIEW-REBUILT">
+</head>
+
+<body class="min-h-screen bg-slate-100 text-slate-800 antialiased">
+  <div class="top-accent"></div>
+
+  <header class="app-header sticky top-0 z-40">
+    <div class="app-container header-inner">
+      <div class="brand">
+        <div class="brand-mark"><i class="fa-solid fa-microchip"></i></div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <h1 class="brand-title">Mobile <span>R&D</span> Technical Hub</h1>
+            <span class="env-badge"><i class="fa-solid fa-circle"></i> ENGINEERING</span>
+          </div>
+          <p class="brand-subtitle">Engineering Records • Specifications • Lab Testing Setup • Model Comparison</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="parameter360HeaderBtn" class="header-module-btn" data-module="parameter360" type="button" title="Open Parameter 360°" aria-label="Open Parameter 360°">
+          <i class="fa-solid fa-arrows-to-circle"></i><span>Parameter 360°</span>
+        </button>
+
+        <div class="model-picker-search" id="modelPickerWrap">
+          <span class="model-picker-caption">Select Model</span>
+          <i class="fa-solid fa-microchip"></i>
+          <input id="modelPickerInput" value="A576" placeholder="Select model..." autocomplete="off" aria-label="Select model" aria-expanded="false" aria-controls="modelPickerMenu">
+          <button id="modelPickerToggle" class="model-picker-toggle" type="button" aria-label="Open model list"><i class="fa-solid fa-chevron-down"></i></button>
+          <div id="modelPickerMenu" class="model-picker-menu hidden" role="listbox"></div>
+        </div>
+
+        <button id="themeBtn" class="header-icon-btn" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">
+          <i id="themeIcon" class="fa-solid fa-moon"></i>
+        </button>
+        <button id="fullscreenBtn" class="header-icon-btn" title="Fullscreen" aria-label="Fullscreen">
+          <i class="fa-solid fa-expand"></i>
+        </button>
+        <button id="refreshDashboardBtn" class="header-icon-btn dashboard-refresh-btn" title="Refresh dashboard" aria-label="Refresh dashboard">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+        <button id="settingsBtn" class="header-icon-btn" title="Portal settings" aria-label="Portal settings">
+          <i class="fa-solid fa-gear"></i>
+        </button>
+        <div id="adminAuthSlot"></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="workspace-shell">
+    <aside class="model-sidebar" aria-label="Active model and model navigation">
+      <div class="sidebar-top">
+        <div class="sidebar-kicker"><i class="fa-solid fa-star"></i> ACTIVE MODEL</div>
+        <div class="sidebar-model-identity"><span id="activeModelCode" class="sidebar-model-code">A576</span><span id="activeModelName" class="sidebar-model-name">Galaxy A576</span></div>
+        <div id="modelStatus" class="status-pill"><i class="fa-solid fa-circle"></i> Mass Production</div>
+      </div>
+
+      <div class="sidebar-details" aria-label="Active model details">
+        <div class="sidebar-details-title">ACTIVE MODEL DETAILS</div>
+        <div class="sidebar-metric"><span><i class="fa-solid fa-microchip"></i> PROCESSOR</span><strong id="metaAp">—</strong></div>
+        <div class="sidebar-metric"><span><i class="fa-solid fa-calendar-days"></i> LAUNCH YEAR</span><strong id="metaModelYear">—</strong></div>
+        <div class="sidebar-metric"><span><i class="fa-solid fa-user-tie"></i> KOREA LEAD / SIEL HW PIC</span><strong id="metaSielHwPic">—</strong></div>
+        <div class="sidebar-metric"><span><i class="fa-solid fa-tower-broadcast"></i> RF / NETWORK</span><strong id="metaRfNetwork">—</strong></div>
+      </div>
+
+      <div class="sidebar-modules" aria-label="Portal feature modules">
+        <div class="sidebar-module-title"><i class="fa-solid fa-grip"></i><span>PORTAL MODULES</span></div>
+        <button class="sidebar-module-btn" data-module="modelDocument" id="modelDocumentBtn"><i class="fa-solid fa-folder-open"></i><span>Model Documents</span></button>
+        <button class="sidebar-module-btn" data-module="excelComparison" id="modelComparisonBtnTop"><i class="fa-solid fa-code-compare"></i><span>Parameter / Spec Comparison</span></button>
+        <button class="sidebar-module-btn" data-module="labKnowledge" id="labKnowledgeBtn"><i class="fa-solid fa-flask-vial"></i><span>R&amp;D Lab Testing Setup</span></button>
+      </div>
+
+      <div class="sidebar-telemetry" aria-label="Repository telemetry">
+        <div class="sidebar-telemetry-title"><i class="fa-solid fa-chart-line"></i><span>TELEMETRY</span></div>
+        <div class="sidebar-telemetry-grid">
+          <div class="sidebar-telemetry-item"><span>RECORDS</span><strong id="telemetryRecords">—</strong></div>
+          <div class="sidebar-telemetry-item"><span>FILES</span><strong id="telemetryFiles">—</strong></div>
+          <div class="sidebar-telemetry-item"><span>STORAGE</span><strong>LOCAL</strong></div>
+        </div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="copySpecsBtn" class="sidebar-action"><i class="fa-regular fa-copy"></i><span>Copy Specs</span></button>
+      </div>
+
+      <div class="sidebar-footer">
+        <span><i class="fa-solid fa-database"></i> Local repository</span>
+        <button id="sidebarCollapseBtn" class="sidebar-collapse-btn" title="Collapse sidebar" aria-label="Collapse sidebar"><i class="fa-solid fa-angles-left"></i></button>
+      </div>
+    </aside>
+
+  <main class="app-container py-5 flex-1">
+    <section id="engineeringRecordsSection" class="records-control-panel" aria-labelledby="engineeringRecordsTitle">
+      <div class="records-control-main">
+        <div class="engineering-records-heading-row">
+          <div class="section-heading">
+            <div class="section-icon"><i class="fa-solid fa-layer-group"></i></div>
+            <div>
+              <h2 id="engineeringRecordsTitle">Engineering Records</h2>
+              <p id="recordCount">— records</p>
+            </div>
+          </div>
+          <button id="engineeringTabsToggle" class="records-tabs-toggle" type="button" aria-expanded="true" title="Hide Engineering Records category tabs">
+            <i class="fa-solid fa-eye-slash"></i><span>Hide Tabs</span>
+          </button>
+        </div>
+        <div class="engineering-records-tabs-row" id="engineeringRecordsTabsRow">
+          <div class="category-tabs" id="categoryTabs"></div>
+        </div>
+      </div>
+      <div class="records-control-tools data-tools">
+        <div class="tool-group">
+          <label class="tool-select"><span>Sort</span><select id="sortSelect"><option value="default">Record order</option><option value="title">Title</option><option value="category">Category</option><option value="favorite">Favorites first</option></select></label>
+          <button id="favoritesToggle" class="tool-btn" title="Show favorites only"><i class="fa-regular fa-star"></i> Favorites</button>
+          <button id="presentationBtn" class="tool-btn"><i class="fa-solid fa-display"></i> Presentation</button>
+          <button id="fileCenterBtn" class="tool-btn file-center-trigger"><i class="fa-solid fa-folder-tree"></i> File Command Center</button>
+          <button id="clearFiltersBtn" class="tool-btn">Clear filters</button>
+          <details class="records-more-tools">
+            <summary><i class="fa-solid fa-ellipsis"></i> More Tools</summary>
+            <div class="records-more-menu">
+              <button id="exportJsonBtn" class="tool-btn" title="Export the current model metadata as JSON; uploaded binaries remain in the local repository"><i class="fa-solid fa-database"></i> Backup Data</button>
+              <button id="exportReportBtn" class="tool-btn" title="Export the selected model's engineering record report"><i class="fa-solid fa-file-lines"></i> Engineering Report</button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+
+
+    <div id="activeFilters" class="active-filters hidden"></div>
+    <section id="cardsGrid" class="records-grid" aria-live="polite"></section>
+  </main>
+  </div>
+
+  <footer class="app-footer">
+    <div class="app-container footer-inner">
+      <div><span class="online-dot"></span> Mobile R&D Technical Hub</div>
+      <div class="mono">IndexedDB • Local Repository • <span id="appVersion">V1.0 • Clean Adaptive Engineering Workspace</span></div>
+    </div>
+  </footer>
+
+  <!-- Login -->
+  <div id="loginModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-sm" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <button class="modal-close" data-close="loginModal"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-icon"><i class="fa-solid fa-lock"></i></div>
+      <h2 id="loginTitle">Admin Authentication — Shivam</h2>
+      <p class="modal-description">Demo/local authentication for upload management.</p>
+      <form id="loginForm">
+        <label class="form-label" for="passwordInput">Admin Password</label>
+        <div class="password-field">
+          <input id="passwordInput" class="form-input" type="password" placeholder="Enter admin password" autocomplete="current-password" required>
+          <button id="passwordToggle" class="password-toggle" type="button" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button>
+        </div>
+        <p class="help-text"><i class="fa-solid fa-shield-halved"></i> Admin access enables engineering document management and upload controls.</p>
+        <p id="loginError" class="error-text hidden">Incorrect password.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-light" data-close="loginModal">Cancel</button>
+          <button class="btn btn-dark" type="submit">Authenticate</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- Admin: Add New Model -->
+  <div id="addModelModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-md" role="dialog" aria-modal="true" aria-labelledby="addModelTitle">
+      <button class="modal-close" data-close="addModelModal" type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading"><div class="modal-icon"><i class="fa-solid fa-square-plus"></i></div><div><h2 id="addModelTitle">Add New Model</h2><p class="modal-description">Admin-only model registration. New models appear automatically in the model selector.</p></div></div>
+      <form id="addModelForm">
+        <div id="editModelSelectWrap" class="hidden mb-3"><label class="form-label" for="editModelSelect">Existing Model</label><select id="editModelSelect" class="form-input"></select><p class="help-text">Select any existing model to update its registered details. Existing engineering records and uploaded files are preserved.</p></div>
+        <div class="form-grid-2">
+          <div><label class="form-label" for="newModelCode">Model Code</label><input id="newModelCode" class="form-input" maxlength="24" placeholder="e.g. A900" required></div>
+          <div><label class="form-label" for="newModelName">Model Name</label><input id="newModelName" class="form-input" maxlength="80" placeholder="e.g. Galaxy A900" required></div>
+          <div><label class="form-label" for="newModelProcessor">Processor</label><input id="newModelProcessor" class="form-input" maxlength="100" required></div>
+          <div><label class="form-label" for="newModelYear">Launch Year</label><input id="newModelYear" class="form-input" maxlength="20" placeholder="e.g. 2027" required></div>
+          <div><label class="form-label" for="newModelPic">Korea Lead / SIEL HW PIC</label><input id="newModelPic" class="form-input" maxlength="100" required></div>
+          <div><label class="form-label" for="newModelRf">RF / Network</label><input id="newModelRf" class="form-input" maxlength="120" required></div>
+          <div><label class="form-label" for="newModelType">Model Type</label><select id="newModelType" class="form-input" required><option value="Development Model">Development Model</option><option value="Mass Production Model">Mass Production Model</option></select></div>
+        </div>
+        <p id="addModelError" class="error-text hidden"></p>
+        <p id="addModelHelp" class="help-text"><i class="fa-solid fa-database"></i> Model registration is stored locally in this browser and survives page reloads.</p>
+        <div class="modal-actions"><button type="button" class="btn btn-light" data-close="addModelModal">Cancel</button><button type="button" class="btn btn-danger hidden" id="deleteModelBtn"><i class="fa-solid fa-trash"></i> Delete Model</button><button class="btn btn-cyan" type="submit" id="addModelSubmit"><i class="fa-solid fa-plus"></i> Add Model</button></div>
+      </form>
+    </section>
+  </div>
+
+  <!-- Upload -->
+  <div id="uploadModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-lg" role="dialog" aria-modal="true" aria-labelledby="uploadTitle">
+      <button class="modal-close" data-close="uploadModal"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading">
+        <div class="modal-icon cyan-bg"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+        <div><h2 id="uploadTitle">Upload Engineering Document</h2><p class="modal-description">Store a binary file in browser IndexedDB and link it to a record.</p></div>
+      </div>
+
+      <form id="uploadForm">
+        <div class="form-grid-2">
+          <div><label class="form-label">Target Model</label><select id="uploadModel" class="form-input"></select></div>
+          <div><label class="form-label">Record</label><select id="uploadRecord" class="form-input"></select></div>
+        </div>
+        <div id="uploadSubPartWrap" class="hidden">
+          <label class="form-label">Upload Destination</label>
+          <select id="uploadSubPart" class="form-input"></select>
+          <p class="help-text">Choose an existing document to add a version, or choose “Add new document” to add another file. There is no per-record document limit.</p>
+        </div>
+        <div class="form-grid-2">
+          <div><label class="form-label">Revision / Version</label><input id="uploadRevision" class="form-input" maxlength="80" placeholder="e.g. Rev 03 / V2.1"></div>
+          <div><label class="form-label">Engineering Note</label><input id="uploadNote" class="form-input" placeholder="e.g. matching network update"></div>
+        </div>
+        <div id="dropZone" class="drop-zone">
+          <i class="fa-solid fa-file-arrow-up"></i>
+          <strong id="fileName">Drop file here or click to browse</strong>
+          <span>Any file type • Add as many documents as your browser storage permits • Existing files and versions are preserved</span>
+          <input id="fileInput" type="file" multiple hidden>
+        </div>
+        <div class="upload-progress hidden" id="uploadProgressWrap"><div id="uploadProgress"></div></div>
+        <div id="uploadStatus" class="help-text"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-light" data-close="uploadModal">Cancel</button>
+          <button id="saveUploadBtn" class="btn btn-cyan" type="submit"><i class="fa-solid fa-floppy-disk"></i> Save Document(s)</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+
+  <!-- Model Comparison -->
+  <div id="modelComparisonModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel model-compare-modal" role="dialog" aria-modal="true" aria-labelledby="modelComparisonTitle">
+      <button class="modal-close" data-close-model-comparison="modelComparisonModal" type="button"><i class="fa-solid fa-xmark"></i></button>
+
+      <div class="mc-hero">
+        <div class="mc-hero-copy">
+          <h2 id="modelComparisonTitle"><i class="fa-solid fa-code-compare"></i> Parameter / Spec Comparison Tool</h2>
+          <p>Compare base and upcoming model specifications and generate a structured parameter delta report.</p>
+        </div>
+        <span class="mc-badge">LOCAL • EXCEL ANALYSIS</span>
+      </div>
+
+      <div class="mc-upload-grid">
+        <div>
+          <label class="form-label">Base Model Excel</label>
+          <select id="mcBaseModel" class="mc-model-select" aria-label="Base model name"></select>
+          <div id="mcBaseDrop" class="mc-drop" tabindex="0" role="button" aria-label="Upload base model Excel">
+            <i class="fa-solid fa-file-excel"></i>
+            <strong id="mcBaseTitle">Drop Base Model Excel Here</strong>
+            <span id="mcBaseMeta">XLSX / XLS • Multiple sheets supported</span>
+            <input id="mcBaseInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          </div>
+        </div>
+        <div>
+          <label class="form-label">Upcoming Model Excel</label>
+          <select id="mcUpcomingModel" class="mc-model-select" aria-label="Upcoming model name"></select>
+          <div id="mcUpcomingDrop" class="mc-drop" tabindex="0" role="button" aria-label="Upload upcoming model Excel">
+            <i class="fa-solid fa-file-excel"></i>
+            <strong id="mcUpcomingTitle">Drop Upcoming Model Excel Here</strong>
+            <span id="mcUpcomingMeta">XLSX / XLS • Multiple sheets supported</span>
+            <input id="mcUpcomingInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          </div>
+        </div>
+      </div>
+
+      <div class="mc-actions">
+        <span id="mcStatus" class="mc-status">Select both workbooks to start.</span>
+        <button id="mcResetBtn" class="btn btn-light" type="button"><i class="fa-solid fa-rotate-left"></i> Reset</button>
+        <button id="mcCompareBtn" class="btn btn-cyan" type="button" disabled><i class="fa-solid fa-wand-magic-sparkles"></i> Compare Models</button>
+        <button id="mcExportBtn" class="btn btn-dark" type="button" disabled><i class="fa-solid fa-file-export"></i> Export Comparison Excel</button>
+      </div>
+      <div id="mcProgressWrap" class="mc-progress-wrap hidden" aria-live="polite" aria-label="Excel comparison progress">
+        <div class="mc-progress-head"><span id="mcProgressLabel">Preparing…</span><strong id="mcProgressPercent">0%</strong></div>
+        <div class="mc-progress-track"><div id="mcProgressBar" class="mc-progress-bar" style="width:0%"></div></div>
+      </div>
+
+      <div id="mcSummary" class="mc-summary hidden"></div>
+
+      <div id="mcResults" class="mc-results hidden">
+        <div class="mc-result-toolbar">
+          <input id="mcSearch" type="search" placeholder="Search parameter, category, sheet or specification...">
+          <select id="mcStatusFilter">
+            <option value="">All results</option>
+            <option value="New Parameter">New Parameters</option>
+            <option value="Deleted Parameter">Deleted Parameters</option>
+            <option value="LSL Wide">LSL Wide</option>
+            <option value="LSL Tight">LSL Tight</option>
+            <option value="USL Wide">USL Wide</option>
+            <option value="USL Tight">USL Tight</option>
+            <option value="Review">Review</option>
+            <option value="Same">Same</option>
+          </select>
+          <select id="mcConfidenceFilter">
+            <option value="">Any confidence</option>
+            <option value="high">High ≥ 90%</option>
+            <option value="medium">Medium 70–89%</option>
+            <option value="low">Low &lt; 70%</option>
+          </select>
+        </div>
+        <div class="mc-table-wrap">
+          <table class="mc-table">
+            <thead>
+              <tr>
+                <th>S.No.</th><th>Upcoming Model Parameter</th><th>Upcoming LSL</th><th>Upcoming USL</th>
+                <th>Base Model Parameter</th><th>Base LSL</th><th>Base USL</th><th>LSL Difference</th><th>USL Difference</th><th>Remark</th>
+              </tr>
+            </thead>
+            <tbody id="mcTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="mc-note">Matching uses exact/normalized names first, then token/fuzzy similarity. Ambiguous matches are surfaced for manual review rather than silently treated as identical.</p>
+    </section>
+  </div>
+
+  <!-- R&D Lab Testing Setup -->
+  <div id="labKnowledgeModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-xl lab-modal" role="dialog" aria-modal="true" aria-labelledby="labKnowledgeTitle">
+      <button class="modal-close" data-close-lab type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="lab-hero"><div><span class="lab-kicker">R&D LAB TESTING SETUP</span><h2 id="labKnowledgeTitle">R&D Lab Testing Setup</h2><p>Test setups, equipment working knowledge, connections and troubleshooting in one model-aware location.</p></div><span class="lab-badge">LOCAL KNOWLEDGE BASE</span></div>
+      <div class="lab-tabs"><button class="lab-tab active" data-lab-tab="setups">Test Setups</button><button class="lab-tab" data-lab-tab="equipment">Equipment</button><button class="lab-tab" data-lab-tab="troubleshooting">Troubleshooting</button></div>
+      <div class="lab-search"><i class="fa-solid fa-magnifying-glass"></i><input id="labSearch" type="search" placeholder="Search setup, equipment, symptom or problem..."></div>
+      <div id="labKnowledgeBody"></div>
+    </section>
+  </div>
+
+  <!-- Parameter 360° -->
+  <div id="parameter360Modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-xl" role="dialog" aria-modal="true" aria-labelledby="parameter360Title">
+      <button class="modal-close" data-close-360 type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading"><div class="modal-icon"><i class="fa-solid fa-arrows-to-circle"></i></div><div><h2 id="parameter360Title">Parameter 360°</h2><p class="modal-description">Search across model records, specifications, tags and linked document metadata.</p></div></div>
+      <div class="lab-search"><i class="fa-solid fa-magnifying-glass"></i><input id="parameter360Search" type="search" placeholder="Search parameter, record, tag, specification..."></div>
+      <div id="parameter360Results" class="p360-results"><div class="p360-empty"><i class="fa-solid fa-magnifying-glass"></i><p>Search a parameter, specification, tag, document or record.</p></div></div>
+    </section>
+  </div>
+
+  <!-- Settings -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-md" role="dialog" aria-modal="true">
+      <button class="modal-close" data-close="settingsModal"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading"><div class="modal-icon"><i class="fa-solid fa-sliders"></i></div><div><h2>Portal Settings</h2><p class="modal-description">Local preferences and data management.</p></div></div>
+
+      <div class="settings-list">
+        <div class="settings-section-title">APPEARANCE</div>
+        <label class="setting-row"><span><strong>Theme</strong><small>Switch between light, dark, or system appearance.</small></span><select id="themeSelect" class="settings-select"><option value="light">Light</option><option value="dark">Dark</option><option value="system">System</option></select></label>
+        <label class="setting-row"><span><strong>Accent color</strong><small>Change the portal highlight color.</small></span><select id="accentSelect" class="settings-select"><option value="cyan">Cyan</option><option value="blue">Blue</option><option value="violet">Violet</option><option value="emerald">Emerald</option><option value="amber">Amber</option><option value="rose">Rose</option><option value="orange">Orange</option><option value="indigo">Indigo</option><option value="teal">Teal</option><option value="fuchsia">Fuchsia</option><option value="sky">Sky</option></select></label>
+        <label class="setting-row"><span><strong>Card density</strong><small>Choose comfortable or compact record spacing.</small></span><select id="densitySelect" class="settings-select"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+        <label class="setting-row"><span><strong>Animations</strong><small>Enable card and interface motion.</small></span><input id="motionToggle" type="checkbox" checked></label>
+        <div class="settings-section-title">WORKSPACE</div>
+        <div class="setting-info"><i class="fa-solid fa-star"></i><span>Favorites and last-viewed model are saved locally in this browser.</span></div>
+        <div class="shortcut-grid"><span><kbd>Ctrl K</kbd> Focus search</span><span><kbd>/</kbd> Focus search</span><span><kbd>F</kbd> Fullscreen</span><span><kbd>Esc</kbd> Close panels</span></div>
+      </div>
+
+      <div class="settings-actions">
+        <button id="settingsApplyBtn" class="btn btn-cyan" type="button">Apply</button>
+        <button id="settingsOkBtn" class="btn btn-dark" type="button">OK</button>
+      </div>
+
+      <div class="settings-danger">
+        <div><strong>Local data</strong><small>Export or reset the local dashboard dataset.</small></div>
+        <div class="flex gap-2">
+          <button id="backupBtn" class="btn btn-light">Backup Metadata</button>
+          <button id="resetBtn" class="btn btn-danger">Reset Local Data</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+
+  <!-- Isolated File Command Center -->
+  <div id="fileCenterModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-xl file-center-panel" role="dialog" aria-modal="true" aria-labelledby="fileCenterTitle">
+      <button class="modal-close" data-close-file-center="fileCenterModal" type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading">
+        <div class="modal-icon cyan-bg"><i class="fa-solid fa-folder-tree"></i></div>
+        <div><h2 id="fileCenterTitle">Engineering File Command Center</h2><p class="modal-description">Search, preview and download files already stored in this browser repository.</p></div>
+      </div>
+      <div class="file-center-toolbar">
+        <div class="file-center-search"><i class="fa-solid fa-magnifying-glass"></i><input id="fileCenterSearch" type="search" placeholder="Search filename, model, record or category..."></div>
+        <select id="fileCenterModel" class="form-input"><option value="">All models</option></select>
+        <button id="fileCenterRefresh" class="btn btn-light" type="button"><i class="fa-solid fa-rotate"></i> Refresh</button>
+        <span id="fileCenterCount" class="file-center-count">0 files</span>
+      </div>
+      <div class="file-center-layout">
+        <div id="fileCenterList" class="file-center-list"></div>
+        <aside class="file-center-recent">
+          <div class="file-center-side-title"><i class="fa-solid fa-clock-rotate-left"></i> Recent Uploads</div>
+          <div id="fileCenterRecent"></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <!-- Record Preview: whole-record workspace. This surface is intentionally separate from the individual-file preview. -->
+  <div id="recordPreviewModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-xl file-preview-panel" role="dialog" aria-modal="true" aria-labelledby="recordPreviewTitle">
+      <button class="modal-close" data-close="recordPreviewModal" type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading"><div class="modal-icon"><i class="fa-solid fa-layer-group"></i></div><div><h2 id="recordPreviewTitle">Record Preview</h2><p id="recordPreviewMeta" class="modal-description"></p></div></div>
+      <div id="recordPreviewBody" class="file-preview-body"></div>
+    </section>
+  </div>
+
+  <!-- File Preview: individual-file renderer owned by File Command Center. -->
+  <div id="filePreviewModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel modal-xl file-preview-panel" role="dialog" aria-modal="true" aria-labelledby="filePreviewTitle">
+      <button class="modal-close" data-close="filePreviewModal" type="button"><i class="fa-solid fa-xmark"></i></button>
+      <div class="modal-heading"><div class="modal-icon"><i class="fa-solid fa-file-circle-check"></i></div><div><h2 id="filePreviewTitle">File Preview</h2><p id="filePreviewMeta" class="modal-description"></p></div></div>
+      <div id="filePreviewBody" class="file-preview-body"></div>
+    </section>
+  </div>
+
+  <!-- Presentation -->
+  <div id="presentationModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <section class="modal-panel presentation-panel" role="dialog" aria-modal="true">
+      <button class="modal-close" data-close="presentationModal"><i class="fa-solid fa-xmark"></i></button>
+      <div id="presentationContent" class="presentation-content"></div>
+      <div class="presentation-nav"><button id="prevRecordBtn" class="btn btn-light">← Previous</button><button id="nextRecordBtn" class="btn btn-dark">Next →</button></div>
+    </section>
+  </div>
+
+  <script type="module">
+    import {applyModuleVisibility} from './js/modules/module-manager.js';
+    import {initLabKnowledge} from './js/modules/lab-knowledge/module.js';
+    import {initParameter360} from './js/modules/parameter-360/module.js';
+    document.addEventListener('DOMContentLoaded',()=>{
+      applyModuleVisibility();
+      initLabKnowledge();
+      initParameter360();
+      document.getElementById('modelDocumentBtn')?.addEventListener('click',()=>document.getElementById('fileCenterBtn')?.click());
+      document.getElementById('modelComparisonBtnTop')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('portal-open-excel-comparison')));
+    });
+  </script>
+  <script src="vendor/jszip.min.js"></script>
+  <script type="module" src="js/app.js?v=V8-PREVIEW-SETTINGS-FIX"></script>
+  <script type="module" src="js/file-command-center.js?v=PREVIEW-REBUILT"></script>
+  <script type="module" src="js/model-comparison/comparison.js?v=V1-CLEAN"></script>
+</body>
+</html>

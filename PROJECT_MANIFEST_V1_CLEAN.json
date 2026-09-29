@@ -1,0 +1,73 @@
+{
+  "version": "V7 Clean Chrome-Preserved Running Dashboard",
+  "features": {
+    "modelDocuments": true,
+    "excelComparison": true,
+    "labKnowledge": true,
+    "parameter360": true,
+    "indexedDbFiles": true,
+    "fileCommandCenter": true,
+    "auditLogging": true,
+    "favorites": true,
+    "sorting": true,
+    "searchAndFilters": false,
+    "presentationMode": true,
+    "engineeringReport": true,
+    "responsiveLayout": true,
+    "dedicatedRecordPreview": true,
+    "adaptiveAllCardsGrid": true,
+    "groupThreeColumnGrid": true,
+    "naturalHeightCards": true,
+    "documentStatusIndicators": true,
+    "unlimitedDocumentsPerRecord": true,
+    "modelAddEdit": true,
+    "settingsModal": true
+  },
+  "uiRequirements": {
+    "activeModelBeforeDetails": true,
+    "detailsBeforePortalModules": true,
+    "noInlineFilePreviewInsideCards": true,
+    "dedicatedPreviewWorkspace": true,
+    "allCardsAdaptiveDensity": true,
+    "allCardsMinimumUsableWidth": true,
+    "groupMaximumThreeColumns": true,
+    "naturalCardHeight": true,
+    "noHistoricalLayoutMigrationCode": true,
+    "preserveOriginalUpperBar": true,
+    "preserveOriginalSidebarStyle": true,
+    "removeLargeAllCardsSearch": true,
+    "groupCardsAlwaysExpanded": true,
+    "noArtificialDocumentCounters": true
+  },
+  "architecture": {
+    "record_system": "js/records/record-system.js",
+    "record_styles": "css/record-system.css",
+    "sidebar_order": [
+      "Active Model",
+      "Active Model Details",
+      "Portal Modules",
+      "Telemetry",
+      "Actions",
+      "Footer"
+    ],
+    "all_cards": "adaptive grid; 65px collapsed; normal flow expansion",
+    "group_cards": "maximum 3 desktop columns; always expanded",
+    "record_count": "derived from current record dataset",
+    "default_record_count": 19,
+    "toolbar": "compact Engineering Records toolbar without the large search field",
+    "documents": "unlimited additional documents per record; no artificial count, type, or per-file size cap",
+    "chrome": "Preserve V1 upper bar and sidebar styling; structural sidebar order only",
+    "recentPanel": "removed from primary record workspace"
+  },
+  "storageNamespace": "MOBILE_RND_DB_DATA_V1",
+  "layoutContracts": {
+    "allCards": "adaptive auto-fit grid; 250px minimum; 4 cards when laptop width permits",
+    "groupView": "3 columns maximum on desktop; responsive 2/1",
+    "collapsedHeight": "65px",
+    "expandedFlow": "normal CSS grid flow; no absolute positioning or JS height synchronization",
+    "title": "single-line ellipsis; no arbitrary word breaking",
+    "preview": "dedicated large Preview workspace for file metadata, versions, previews and downloads",
+    "documentStatus": "explicit DOCUMENT READY / DOCUMENT MISSING state",
+    "documents": "unlimited additional documents; 2\u20133+ files render as independent rows and expand naturally"
+  }
+}
