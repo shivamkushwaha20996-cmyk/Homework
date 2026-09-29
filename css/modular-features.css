@@ -1,0 +1,10 @@
+/* Portal module navigation — structural order only. Visual styling lives in dashboard.css. */
+.model-sidebar{display:flex;flex-direction:column;gap:12px}
+.model-sidebar > .sidebar-top{order:1}
+.model-sidebar > .sidebar-details{order:2}
+.model-sidebar > .sidebar-modules{order:3}
+.model-sidebar > .sidebar-telemetry{order:4}
+.model-sidebar > .sidebar-actions{order:5}
+.model-sidebar > .sidebar-footer{order:6;margin-top:auto}
+
+@media (max-width:900px){.sidebar-modules{margin-top:0}}
