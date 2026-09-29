@@ -3,7 +3,7 @@
  * Data loading, filtering, upload/storage and application state remain in app.js.
  * This module owns only record cards + the dedicated record preview workspace.
  */
-import {resolvePreviewFile,renderPreview,clearPreviewContainer} from "../preview/preview-controller.js?v=PREVIEW-REBUILT";
+import {resolvePreviewFile,renderPreview,clearPreviewContainer} from "../preview/preview-controller.js?v=PREVIEW-RUNTIME-20260929-01";
 
 export function createRecordSystem(ctx){
   let previewRequestId=0;
