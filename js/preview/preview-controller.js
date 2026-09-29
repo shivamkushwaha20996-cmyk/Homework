@@ -1,7 +1,7 @@
 /*
- * Preview subsystem — Unified Document & Media Renderer
+ * Preview subsystem — Unified Document, Media & Presentation Renderer
  * Responsibilities: identity resolution, binary hydration, MIME normalization,
- * format detection, OpenXML/ODF parsing, syntax formatting, and object-URL lifecycle.
+ * format detection, PPT/PPTX parsing, ODF/Office XML rendering, and object-URL lifecycle.
  */
 import {getLatestFile, getFile} from "../database.js";
 
@@ -23,7 +23,7 @@ const AUDIO = new Set(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac"]);
 const VIDEO = new Set(["mp4", "webm", "ogv", "mov", "m4v"]);
 const SHEETS = new Set(["xlsx", "xlsm", "xltx", "xltm"]);
 const DOCS = new Set(["docx", "docm", "dotx", "dotm"]);
-const PPTS = new Set(["pptx", "pptm", "potx", "potm", "ppsx", "ppsm"]);
+const PPTS = new Set(["ppt", "pptx", "pptm", "potx", "potm", "ppsx", "ppsm"]);
 const ARCHIVES = new Set(["zip", "jar", "epub", "apk", "aar"]);
 
 function extOf(name = "") {
@@ -273,27 +273,91 @@ async function renderDocx(zip, name, container, escapeHtml) {
   </article>`;
 }
 
+/* =========================================================================
+   PowerPoint Renderer: Handles both .pptx (OpenXML) and .ppt (Legacy Binary)
+   ========================================================================= */
+
 async function renderPptx(zip, name, container, escapeHtml) {
-  const presentation = xmlDoc(await readZipText(zip, "ppt/presentation.xml"));
-  const size = presentation.getElementsByTagNameNS("*", "sldSz")[0];
-  const cx = parseEmu(attr(size, "cx")) || 12192000;
-  const cy = parseEmu(attr(size, "cy")) || 6858000;
+  let cx = 12192000, cy = 6858000;
+  const presEntry = getZipEntry(zip, "ppt/presentation.xml");
+  if (presEntry) {
+    try {
+      const presentation = xmlDoc(await presEntry.async("text"));
+      const size = presentation.getElementsByTagNameNS("*", "sldSz")[0];
+      if (size) {
+        cx = parseEmu(attr(size, "cx")) || cx;
+        cy = parseEmu(attr(size, "cy")) || cy;
+      }
+    } catch {}
+  }
 
   const paths = Object.keys(zip.files)
-    .filter(p => /^ppt[\\/]slides[\\/]slide\d+\.xml$/i.test(p))
+    .filter(p => /(?:^|[\\/])ppt[\\/]slides[\\/]slide\d+\.xml$/i.test(p))
     .sort((a, b) => {
       const na = Number(a.match(/slide(\d+)/i)?.[1] || 0);
       const nb = Number(b.match(/slide(\d+)/i)?.[1] || 0);
       return na - nb;
     });
 
-  if (!paths.length) throw new Error("No readable PPTX slides found");
+  if (!paths.length) throw new Error("No readable slides found in PPTX package");
 
   const slides = [];
   for (let i = 0; i < paths.length; i++) {
-    const xml = xmlDoc(await readZipText(zip, paths[i]));
+    const slidePath = paths[i];
+    const xml = xmlDoc(await readZipText(zip, slidePath));
     const items = [];
 
+    // Resolve slide-specific image relationships
+    const relsPath = slidePath.replace(/slide(\d+)\.xml$/i, "_rels/slide$1.xml.rels");
+    const relsEntry = getZipEntry(zip, relsPath);
+    const relMap = new Map();
+    if (relsEntry) {
+      try {
+        const rDoc = xmlDoc(await relsEntry.async("text"));
+        for (const rel of [...rDoc.getElementsByTagNameNS("*", "Relationship")]) {
+          const id = attr(rel, "Id");
+          let target = attr(rel, "Target");
+          if (target) {
+            target = target.replace(/\\/g, "/");
+            if (target.startsWith("../")) target = `ppt/${target.slice(3)}`;
+            else if (!target.startsWith("ppt/")) target = `ppt/slides/${target}`;
+            relMap.set(id, target);
+          }
+        }
+      } catch {}
+    }
+
+    // 1. Render Pictures (<p:pic>)
+    for (const pic of [...xml.getElementsByTagNameNS("*", "pic")]) {
+      const blip = pic.getElementsByTagNameNS("*", "blip")[0];
+      const rId = blip?.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || attr(blip, "r:embed") || attr(blip, "embed");
+      const imgPath = relMap.get(rId);
+      const imgEntry = imgPath ? getZipEntry(zip, imgPath) : null;
+      if (imgEntry) {
+        try {
+          const b64 = await imgEntry.async("base64");
+          const ext = extOf(imgPath);
+          const mime = ext === "png" ? "image/png" : (ext === "jpg" || ext === "jpeg") ? "image/jpeg" : ext === "svg" ? "image/svg+xml" : "image/png";
+          const dataUrl = `data:${mime};base64,${b64}`;
+
+          const xfrm = pic.getElementsByTagNameNS("*", "xfrm")[0];
+          const off = xfrm?.getElementsByTagNameNS("*", "off")[0];
+          const extNode = xfrm?.getElementsByTagNameNS("*", "ext")[0];
+          const wEmu = parseEmu(attr(extNode, "cx")), hEmu = parseEmu(attr(extNode, "cy"));
+          if (wEmu > 0 && hEmu > 0 && cx > 0 && cy > 0) {
+            const left = Math.max(0, Math.min(95, (parseEmu(attr(off, "x")) / cx) * 100));
+            const top = Math.max(0, Math.min(95, (parseEmu(attr(off, "y")) / cy) * 100));
+            const width = Math.max(4, Math.min(100 - left, (wEmu / cx) * 100));
+            const height = Math.max(3, Math.min(100 - top, (hEmu / cy) * 100));
+            items.push(`<img class="pptx-slide-image is-absolute" src="${dataUrl}" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(2)}%;" alt="Slide Graphic">`);
+          } else {
+            items.push(`<img class="pptx-slide-image is-flow" src="${dataUrl}" alt="Slide Graphic">`);
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Render Text Shapes (<p:sp>)
     for (const shape of [...xml.getElementsByTagNameNS("*", "sp")]) {
       const paras = [...shape.getElementsByTagNameNS("*", "p")];
       const lines = [];
@@ -306,20 +370,21 @@ async function renderPptx(zip, name, container, escapeHtml) {
 
       const xfrm = shape.getElementsByTagNameNS("*", "xfrm")[0];
       const off = xfrm?.getElementsByTagNameNS("*", "off")[0];
-      const ext = xfrm?.getElementsByTagNameNS("*", "ext")[0];
-      const extX = parseEmu(attr(ext, "cx"));
-      const extY = parseEmu(attr(ext, "cy"));
-      let boxStyle = "position:relative;margin:8px auto;width:94%;";
-      if (extX > 0 && extY > 0 && cx > 0 && cy > 0) {
+      const extNode = xfrm?.getElementsByTagNameNS("*", "ext")[0];
+      const wEmu = parseEmu(attr(extNode, "cx")), hEmu = parseEmu(attr(extNode, "cy"));
+
+      if (wEmu > 0 && hEmu > 0 && cx > 0 && cy > 0) {
         const left = Math.max(0, Math.min(95, (parseEmu(attr(off, "x")) / cx) * 100));
         const top = Math.max(0, Math.min(95, (parseEmu(attr(off, "y")) / cy) * 100));
-        const width = Math.max(5, Math.min(100 - left, (extX / cx) * 100));
-        const height = Math.max(3, Math.min(100 - top, (extY / cy) * 100));
-        boxStyle = `position:absolute;left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(2)}%;`;
+        const width = Math.max(5, Math.min(100 - left, (wEmu / cx) * 100));
+        const height = Math.max(3, Math.min(100 - top, (hEmu / cy) * 100));
+        items.push(`<div class="pptx-text-box is-absolute" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(2)}%;">${esc(fullText, escapeHtml)}</div>`);
+      } else {
+        items.push(`<div class="pptx-text-box is-flow">${esc(fullText, escapeHtml)}</div>`);
       }
-      items.push(`<div class="pptx-text-box" style="${boxStyle}">${esc(fullText, escapeHtml)}</div>`);
     }
 
+    // 3. Render Tables (<a:tbl>)
     for (const tbl of [...xml.getElementsByTagNameNS("*", "tbl")]) {
       const rows = [...tbl.getElementsByTagNameNS("*", "tr")].map(r => {
         return [...r.getElementsByTagNameNS("*", "tc")].map(c => {
@@ -327,17 +392,113 @@ async function renderPptx(zip, name, container, escapeHtml) {
         });
       });
       if (rows.length && rows.some(r => r.some(Boolean))) {
-        items.push(`<div class="pptx-table-wrap" style="position:relative;margin:10px auto;width:94%;"><table class="record-preview-table"><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c, escapeHtml)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+        items.push(`<div class="pptx-table-wrap"><table class="record-preview-table"><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c, escapeHtml)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
       }
     }
 
     slides.push(`<section class="pptx-slide-preview">
       <div class="pptx-slide-number">SLIDE ${i + 1}</div>
-      <div class="pptx-slide-canvas" style="aspect-ratio:${cx}/${cy}">${items.join("") || '<div class="pptx-empty-slide">No text or renderable text shapes found on this slide.</div>'}</div>
+      <div class="pptx-slide-canvas" style="aspect-ratio:${cx}/${cy};">
+        ${items.join("") || '<div class="pptx-empty-slide">Empty slide or unrendered graphical element</div>'}
+      </div>
     </section>`);
   }
 
-  container.innerHTML = `<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${slides.length} slide${slides.length === 1 ? "" : "s"}</span></div>${slides.join("")}</div>`;
+  container.innerHTML = `<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${slides.length} slide${slides.length === 1 ? "" : "s"} (PPTX)</span></div>${slides.join("")}</div>`;
+}
+
+async function renderPptBinary(buffer, name, container, escapeHtml) {
+  const bytes = new Uint8Array(buffer);
+  const slides = [];
+  let currentSlideTexts = [];
+
+  function commitSlide() {
+    if (currentSlideTexts.length) {
+      slides.push([...currentSlideTexts]);
+      currentSlideTexts = [];
+    }
+  }
+
+  // Scan PowerPoint Binary Stream records for Slide Markers & Text Atoms
+  let pos = 0;
+  while (pos < bytes.length - 8) {
+    const recVer = bytes[pos] & 0x0F;
+    const recType = bytes[pos + 2] | (bytes[pos + 3] << 8);
+    const recLen = bytes[pos + 4] | (bytes[pos + 5] << 8) | (bytes[pos + 6] << 16) | (bytes[pos + 7] << 24);
+
+    if (recLen < 0 || pos + 8 + recLen > bytes.length) {
+      pos += 2;
+      continue;
+    }
+
+    // 1006 = RT_Slide, 4057 = RT_SlidePersistAtom
+    if (recType === 1006 || recType === 4057) {
+      commitSlide();
+    }
+    // 3999 = RT_TextCharsAtom (UTF-16LE text)
+    else if (recType === 3999 && recLen >= 2) {
+      let str = "";
+      for (let i = 0; i < recLen - 1; i += 2) {
+        const code = bytes[pos + 8 + i] | (bytes[pos + 8 + i + 1] << 8);
+        if (code >= 32 || code === 10 || code === 13) str += String.fromCharCode(code);
+      }
+      const trimmed = str.trim();
+      if (trimmed.length > 1 && !currentSlideTexts.includes(trimmed)) {
+        currentSlideTexts.push(trimmed);
+      }
+    }
+    // 4000 = RT_TextBytesAtom (ASCII text)
+    else if (recType === 4000 && recLen >= 1) {
+      let str = "";
+      for (let i = 0; i < recLen; i++) {
+        const code = bytes[pos + 8 + i];
+        if (code >= 32 || code === 10 || code === 13) str += String.fromCharCode(code);
+      }
+      const trimmed = str.trim();
+      if (trimmed.length > 1 && !currentSlideTexts.includes(trimmed)) {
+        currentSlideTexts.push(trimmed);
+      }
+    }
+
+    if (recVer === 0x0F) pos += 8; // Container: step inside
+    else pos += 8 + recLen;        // Atom: skip body
+  }
+  commitSlide();
+
+  // Fallback: If no structured slide container matched, extract coherent printable runs
+  if (!slides.length) {
+    const rawMatches = [];
+    let asciiRun = "";
+    for (let i = 0; i < bytes.length; i++) {
+      const c = bytes[i];
+      if ((c >= 32 && c <= 126) || c === 10 || c === 13) {
+        asciiRun += String.fromCharCode(c);
+      } else {
+        if (asciiRun.trim().length >= 4) rawMatches.push(asciiRun.trim());
+        asciiRun = "";
+      }
+    }
+    if (rawMatches.length) {
+      for (let i = 0; i < rawMatches.length; i += 6) {
+        slides.push(rawMatches.slice(i, i + 6));
+      }
+    }
+  }
+
+  if (!slides.length) {
+    throw new Error("No readable slides or presentation text records found in legacy PPT file");
+  }
+
+  const slideHtml = slides.map((texts, idx) => `
+    <section class="pptx-slide-preview">
+      <div class="pptx-slide-number">SLIDE ${idx + 1}</div>
+      <div class="pptx-slide-canvas is-flow">
+        ${texts.map(t => `<div class="pptx-text-box is-flow">${esc(t, escapeHtml)}</div>`).join("")}
+      </div>
+    </section>
+  `).join("");
+
+  container.innerHTML = `<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${slides.length} slide${slides.length === 1 ? "" : "s"} (PowerPoint 97–2003)</span></div>${slideHtml}</div>`;
 }
 
 async function renderZipManifest(zip, name, container, escapeHtml) {
@@ -388,7 +549,7 @@ function detect(ext, mime) {
   if (TEXT.has(ext) || mime.startsWith("text/")) return "text";
   if (SHEETS.has(ext)) return "spreadsheet";
   if (DOCS.has(ext)) return "document";
-  if (PPTS.has(ext)) return "presentation";
+  if (PPTS.has(ext) || mime.includes("presentation") || mime.includes("powerpoint")) return "presentation";
   if (["odt", "ods", "odp"].includes(ext)) return "opendocument";
   if (ARCHIVES.has(ext) || mime === "application/zip" || mime === "application/epub+zip") return "archive";
   return "fallback";
@@ -435,16 +596,6 @@ export async function renderPreview({ blob, name, container, escapeHtml, onDownl
     return url;
   };
 
-  let zipPackage = null;
-  if (isZipFormat(ext, mime)) {
-    try {
-      const buf = await normalizedBlob.arrayBuffer();
-      zipPackage = await zipLib().loadAsync(buf);
-    } catch (err) {
-      console.warn("Package is not a standard ZIP archive", err);
-    }
-  }
-
   if (kind === "image") {
     container.innerHTML = `<img class="record-preview-image" src="${objectUrl()}" alt="${esc(name, escapeHtml)}">`;
     return { kind, ext };
@@ -474,6 +625,32 @@ export async function renderPreview({ blob, name, container, escapeHtml, onDownl
     return { kind, ext };
   }
 
+  // Handle Presentations (PPTX & PPT)
+  if (kind === "presentation") {
+    const buf = await normalizedBlob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const isZip = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B;
+
+    if (isZip) {
+      const zipPackage = await zipLib().loadAsync(buf);
+      await renderPptx(zipPackage, name, container, escapeHtml);
+    } else {
+      await renderPptBinary(buf, name, container, escapeHtml);
+    }
+    return { kind, ext };
+  }
+
+  // Handle Other ZIP-based Packages
+  let zipPackage = null;
+  if (isZipFormat(ext, mime)) {
+    try {
+      const buf = await normalizedBlob.arrayBuffer();
+      zipPackage = await zipLib().loadAsync(buf);
+    } catch (err) {
+      console.warn("Package is not a standard ZIP archive", err);
+    }
+  }
+
   if (zipPackage) {
     if (kind === "spreadsheet") {
       await renderSpreadsheet(zipPackage, name, container, escapeHtml);
@@ -481,10 +658,6 @@ export async function renderPreview({ blob, name, container, escapeHtml, onDownl
     }
     if (kind === "document") {
       await renderDocx(zipPackage, name, container, escapeHtml);
-      return { kind, ext };
-    }
-    if (kind === "presentation") {
-      await renderPptx(zipPackage, name, container, escapeHtml);
       return { kind, ext };
     }
     if (kind === "opendocument") {
