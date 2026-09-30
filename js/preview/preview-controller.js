@@ -1,686 +1,132 @@
 /*
- * Preview subsystem — Unified Document, Media & Presentation Renderer
- * Responsibilities: identity resolution, binary hydration, MIME normalization,
- * format detection, PPT/PPTX parsing, ODF/Office XML rendering, and object-URL lifecycle.
+ * Preview subsystem rebuilt as one boundary.
+ * The dashboard/card structure stays outside this module.
+ * Responsibilities: identity resolution, latest-file hydration, binary integrity,
+ * format detection, rendering, cancellation and object-URL lifecycle.
  */
-import {getLatestFile, getFile} from "../database.js";
+import {getLatestFile} from "../database.js";
 
-const ZIP_OFFICE = {
-  docx: "word/document.xml", docm: "word/document.xml", dotx: "word/document.xml", dotm: "word/document.xml",
-  xlsx: "xl/workbook.xml", xlsm: "xl/workbook.xml", xltx: "xl/workbook.xml", xltm: "xl/workbook.xml",
-  pptx: "ppt/presentation.xml", pptm: "ppt/presentation.xml", potx: "ppt/presentation.xml", potm: "ppt/presentation.xml", ppsx: "ppt/presentation.xml", ppsm: "ppt/presentation.xml",
-  odt: "content.xml", ods: "content.xml", odp: "content.xml"
+const ZIP_OFFICE={
+  docx:"word/document.xml", docm:"word/document.xml", dotx:"word/document.xml", dotm:"word/document.xml",
+  xlsx:"xl/workbook.xml", xlsm:"xl/workbook.xml", xltx:"xl/workbook.xml", xltm:"xl/workbook.xml",
+  pptx:"ppt/presentation.xml", pptm:"ppt/presentation.xml", potx:"ppt/presentation.xml", potm:"ppt/presentation.xml", ppsx:"ppt/presentation.xml", ppsm:"ppt/presentation.xml",
+  odt:"content.xml", ods:"content.xml", odp:"content.xml"
 };
-const OFFICE_ZIP = new Set(Object.keys(ZIP_OFFICE));
-const IMAGE = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "ico", "avif"]);
-const TEXT = new Set([
-  "txt", "log", "md", "markdown", "json", "xml", "yaml", "yml", "ini", "cfg", "conf",
-  "html", "htm", "css", "js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "java", "c",
-  "cpp", "h", "hpp", "sql", "sh", "bat", "ps1", "rtf", "diff", "patch", "inf",
-  "properties", "gradle", "cmake", "mak", "mk", "out", "err", "asc", "net", "sch", "gbr", "ger"
-]);
-const AUDIO = new Set(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac"]);
-const VIDEO = new Set(["mp4", "webm", "ogv", "mov", "m4v"]);
-const SHEETS = new Set(["xlsx", "xlsm", "xltx", "xltm"]);
-const DOCS = new Set(["docx", "docm", "dotx", "dotm"]);
-const PPTS = new Set(["ppt", "pptx", "pptm", "potx", "potm", "ppsx", "ppsm"]);
-const ARCHIVES = new Set(["zip", "jar", "epub", "apk", "aar"]);
+const OFFICE_ZIP=new Set(Object.keys(ZIP_OFFICE));
+const IMAGE=new Set(["png","jpg","jpeg","webp","gif","svg","bmp","ico","avif"]);
+const TEXT=new Set(["txt","log","md","markdown","json","xml","yaml","yml","ini","cfg","conf","html","htm","css","js","mjs","cjs","ts","tsx","jsx","py","java","c","cpp","h","hpp","sql","sh","bat","ps1","rtf"]);
+const AUDIO=new Set(["mp3","wav","ogg","oga","m4a","aac","flac"]);
+const VIDEO=new Set(["mp4","webm","ogv","mov","m4v"]);
+const SHEETS=new Set(["xlsx","xlsm","xltx","xltm"]);
+const DOCS=new Set(["docx","docm","dotx","dotm"]);
+const PPTS=new Set(["pptx","pptm","potx","potm","ppsx","ppsm"]);
+const ARCHIVES=new Set(["zip","jar","epub"]);
 
-function extOf(name = "") {
-  const clean = String(name).split(/[?#]/)[0];
-  const dot = clean.lastIndexOf(".");
-  return dot >= 0 ? clean.slice(dot + 1).toLowerCase() : "";
+function extOf(name=""){const clean=String(name).split(/[?#]/)[0],dot=clean.lastIndexOf(".");return dot>=0?clean.slice(dot+1).toLowerCase():""}
+function esc(value,escapeHtml){return escapeHtml(String(value??""))}
+function zipLib(){if(!window.JSZip)throw new Error("Bundled ZIP preview library is unavailable");return window.JSZip}
+function xmlDoc(text){const doc=new DOMParser().parseFromString(text,"application/xml");if(doc.querySelector("parsererror"))throw new Error("Invalid XML package content");return doc}
+function xmlTextNodes(root,localName){return [...root.getElementsByTagNameNS("*",localName)].map(n=>n.textContent.trim()).filter(Boolean)}
+function attr(node,name){return node?.getAttribute(name)||""}
+async function readZipText(zip,path){const f=zip.files[path];if(!f||f.dir)throw new Error(`Missing package entry: ${path}`);return f.async("text")}
+function parseEmu(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
+function delimitedHtml(text,ext,escapeHtml){
+  const rows=text.split(/\r?\n/).filter(r=>r.length).slice(0,160),delimiter=ext==="tsv"?"\t":",";
+  const cells=rows.map(row=>{const out=[];let cell="",quoted=false;for(let i=0;i<row.length;i++){const ch=row[i],next=row[i+1];if(ch==='"'&&quoted&&next==='"'){cell+='"';i++;continue}if(ch==='"'){quoted=!quoted;continue}if(ch===delimiter&&!quoted){out.push(cell);cell="";continue}cell+=ch}out.push(cell);return out.slice(0,30)});
+  if(!cells.length)return `<div class="preview-placeholder"><strong>Empty ${esc(ext.toUpperCase(),escapeHtml)} file</strong></div>`;
+  const maxCols=Math.min(30,cells.reduce((m,r)=>Math.max(m,r.length),0));
+  return `<div class="record-preview-table-wrap"><table class="record-preview-table"><tbody>${cells.map((row,i)=>`<tr>${Array.from({length:maxCols},(_,j)=>`<${i===0?"th":"td"}>${esc(row[j]??"",escapeHtml)}</${i===0?"th":"td"}>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+async function renderSpreadsheet(blob,name,container,escapeHtml){
+  const zip=await zipLib().loadAsync(await blob.arrayBuffer()),shared=[];
+  if(zip.files["xl/sharedStrings.xml"]){const doc=xmlDoc(await readZipText(zip,"xl/sharedStrings.xml"));for(const si of [...doc.getElementsByTagNameNS("*","si")])shared.push(xmlTextNodes(si,"t").join(""))}
+  const wb=xmlDoc(await readZipText(zip,"xl/workbook.xml")),rels=zip.files["xl/_rels/workbook.xml.rels"]?xmlDoc(await readZipText(zip,"xl/_rels/workbook.xml.rels")):null;
+  const relMap=new Map();if(rels)for(const r of [...rels.getElementsByTagNameNS("*","Relationship")])relMap.set(attr(r,"Id"),attr(r,"Target"));
+  const sheets=[...wb.getElementsByTagNameNS("*","sheet")].map(s=>({name:attr(s,"name"),rid:attr(s,"{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")||attr(s,"r:id")}));
+  const first=sheets[0];if(!first)throw new Error("Workbook contains no sheets");
+  let target=relMap.get(first.rid)||"worksheets/sheet1.xml";target=target.replace(/^\//,"");if(!target.startsWith("xl/"))target=`xl/${target.replace(/^xl\//,"")}`;
+  const sheet=xmlDoc(await readZipText(zip,target)),rows=[];let maxCols=0;
+  for(const row of [...sheet.getElementsByTagNameNS("*","row")].slice(0,160)){const cells=[];for(const c of [...row.getElementsByTagNameNS("*","c")]){const ref=attr(c,"r"),m=ref.match(/([A-Z]+)/),col=m?m[1].split("").reduce((n,ch)=>n*26+ch.charCodeAt(0)-64,0)-1:cells.length;let value="";const t=attr(c,"t"),v=c.getElementsByTagNameNS("*","v")[0];if(t==="s")value=shared[Number(v?.textContent||-1)]??"";else if(t==="inlineStr")value=xmlTextNodes(c,"t").join("");else value=v?.textContent||xmlTextNodes(c,"t").join("");cells[col]=value}maxCols=Math.max(maxCols,cells.length);rows.push(cells)}
+  maxCols=Math.min(30,maxCols);container.innerHTML=`<div class="record-preview-table-wrap"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>${sheets.length} sheet${sheets.length===1?"":"s"} · ${esc(first.name,escapeHtml)}</span></div>${rows.length?`<table class="record-preview-table spreadsheet-preview"><tbody>${rows.map((row,i)=>`<tr>${Array.from({length:maxCols},(_,j)=>`<${i===0?"th":"td"}>${esc(row[j]??"",escapeHtml)}</${i===0?"th":"td"}>`).join("")}</tr>`).join("")}</tbody></table>`:`<div class="preview-placeholder"><strong>No readable cells found</strong></div>`}</div>`;
+}
+async function renderDocx(blob,name,container,escapeHtml){
+  const zip=await zipLib().loadAsync(await blob.arrayBuffer()),xml=xmlDoc(await readZipText(zip,"word/document.xml")),body=xml.getElementsByTagNameNS("*","body")[0],blocks=[];
+  for(const child of [...(body?.children||[])]){const tag=child.localName,text=xmlTextNodes(child,"t").join("");if(!text)continue;if(tag==="tbl"){const rows=[...child.getElementsByTagNameNS("*","tr")].map(r=>[...r.getElementsByTagNameNS("*","tc")].map(c=>xmlTextNodes(c,"t").join(" ")));blocks.push(`<table class="record-preview-table"><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c,escapeHtml)}</td>`).join("")}</tr>`).join("")}</tbody></table>`)}else blocks.push(`<p>${esc(text,escapeHtml)}</p>`)}
+  container.innerHTML=`<article class="record-preview-docx"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>DOCX</span></div><div class="docx-content">${blocks.join("")||"<p>No readable document content found.</p>"}</div></article>`;
+}
+async function renderPptx(blob,name,container,escapeHtml){
+  const zip=await zipLib().loadAsync(await blob.arrayBuffer()),presentation=xmlDoc(await readZipText(zip,"ppt/presentation.xml")),size=presentation.getElementsByTagNameNS("*","sldSz")[0],cx=parseEmu(attr(size,"cx"))||12192000,cy=parseEmu(attr(size,"cy"))||6858000;
+  const paths=Object.keys(zip.files).filter(p=>/^ppt\/slides\/slide\d+\.xml$/i.test(p)).sort((a,b)=>Number(a.match(/slide(\d+)/i)[1])-Number(b.match(/slide(\d+)/i)[1]));if(!paths.length)throw new Error("No PPTX slides found");
+  const slides=[];for(let i=0;i<paths.length;i++){const xml=xmlDoc(await readZipText(zip,paths[i])),spTree=xml.getElementsByTagNameNS("*","spTree")[0],items=[];if(spTree)for(const shape of [...spTree.children].filter(x=>x.localName==="sp")){const text=xmlTextNodes(shape,"t").join(" ");if(!text)continue;const xfrm=shape.getElementsByTagNameNS("*","xfrm")[0],off=xfrm?.getElementsByTagNameNS("*","off")[0],ext=xfrm?.getElementsByTagNameNS("*","ext")[0],left=Math.max(0,Math.min(100,parseEmu(attr(off,"x"))/cx*100)),top=Math.max(0,Math.min(100,parseEmu(attr(off,"y"))/cy*100)),width=Math.max(4,Math.min(100-left,parseEmu(attr(ext,"cx"))/cx*100)),height=Math.max(3,Math.min(100-top,parseEmu(attr(ext,"cy"))/cy*100));items.push(`<div class="pptx-text-box" style="left:${left}%;top:${top}%;width:${width}%;height:${height}%">${esc(text,escapeHtml)}</div>`)}slides.push(`<section class="pptx-slide-preview"><div class="pptx-slide-number">SLIDE ${i+1}</div><div class="pptx-slide-canvas" style="aspect-ratio:${cx}/${cy}">${items.join("")||'<div class="pptx-empty-slide">No text or renderable text shapes found on this slide.</div>'}</div></section>`)}
+  container.innerHTML=`<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>${slides.length} slide${slides.length===1?"":"s"}</span></div>${slides.join("")}</div>`;
+}
+async function renderZipManifest(blob,name,container,escapeHtml){const zip=await zipLib().loadAsync(await blob.arrayBuffer()),files=Object.values(zip.files).filter(x=>!x.dir).slice(0,300);container.innerHTML=`<div class="record-preview-table-wrap"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>${files.length} file${files.length===1?"":"s"} in archive</span></div><table class="record-preview-table"><tbody><tr><th>Path</th><th>Type</th></tr>${files.map(x=>`<tr><td>${esc(x.name,escapeHtml)}</td><td>Archive entry</td></tr>`).join("")}</tbody></table></div>`}
+async function renderOpenDocument(blob,name,ext,container,escapeHtml){
+  const zip=await zipLib().loadAsync(await blob.arrayBuffer()),xml=xmlDoc(await readZipText(zip,"content.xml"));
+  const paras=xmlTextNodes(xml,"p");
+  const headings=xmlTextNodes(xml,"h");
+  const cells=[...xml.getElementsByTagNameNS("*","table-cell")].map(c=>xmlTextNodes(c,"p").join(" ")).filter(Boolean);
+  const text=[...headings,...paras];
+  if(ext==="ods"&&cells.length){
+    const rows=[];for(const row of [...xml.getElementsByTagNameNS("*","table-row")].slice(0,160)){const vals=[...row.getElementsByTagNameNS("*","table-cell")].map(c=>xmlTextNodes(c,"p").join(" "));if(vals.some(Boolean))rows.push(vals)}
+    const cols=Math.min(30,rows.reduce((m,r)=>Math.max(m,r.length),0));container.innerHTML=`<div class="record-preview-table-wrap"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>OpenDocument spreadsheet</span></div><table class="record-preview-table"><tbody>${rows.map((r,i)=>`<tr>${Array.from({length:cols},(_,j)=>`<${i===0?"th":"td"}>${esc(r[j]??"",escapeHtml)}</${i===0?"th":"td"}>`).join("")}</tr>`).join("")}</tbody></table></div>`;return;
+  }
+  container.innerHTML=`<article class="record-preview-docx"><div class="preview-office-toolbar"><strong>${esc(name,escapeHtml)}</strong><span>${ext.toUpperCase()}</span></div><div class="docx-content">${text.length?text.map(x=>`<p>${esc(x,escapeHtml)}</p>`).join(""):cells.map(x=>`<p>${esc(x,escapeHtml)}</p>`).join("")||"<p>No readable OpenDocument content found.</p>"}</div></article>`;
 }
 
-function esc(value, escapeHtml) {
-  return escapeHtml ? escapeHtml(String(value ?? "")) : String(value ?? "");
-}
-
-function zipLib() {
-  const lib = globalThis.JSZip || window.JSZip || (typeof JSZip !== "undefined" ? JSZip : null);
-  if (!lib) throw new Error("Bundled ZIP preview library (JSZip) is unavailable");
-  return lib;
-}
-
-function getZipEntry(zip, targetPath) {
-  if (!zip || !zip.files) return null;
-  if (zip.files[targetPath] && !zip.files[targetPath].dir) return zip.files[targetPath];
-  const normalizedTarget = targetPath.replace(/\\/g, "/").replace(/^\//, "").toLowerCase();
-  for (const [key, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue;
-    const normKey = key.replace(/\\/g, "/").replace(/^\//, "").toLowerCase();
-    if (normKey === normalizedTarget) return entry;
-  }
-  return null;
-}
-
-async function readZipText(zip, path) {
-  const entry = getZipEntry(zip, path);
-  if (!entry) throw new Error(`Missing package entry: ${path}`);
-  return entry.async("text");
-}
-
-function xmlDoc(text) {
-  const clean = String(text || "").trim().replace(/^\uFEFF/, "");
-  const doc = new DOMParser().parseFromString(clean, "application/xml");
-  if (doc.querySelector("parsererror")) {
-    const fallback = new DOMParser().parseFromString(clean, "text/xml");
-    if (!fallback.querySelector("parsererror")) return fallback;
-    throw new Error("Invalid XML package content");
-  }
-  return doc;
-}
-
-function attr(node, name) {
-  return node?.getAttribute(name) || "";
-}
-
-function parseEmu(v) {
-  const n = Number(v || 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function ensureMimeBlob(blob, ext) {
-  const mimeMap = {
-    pdf: "application/pdf",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-    bmp: "image/bmp",
-    ico: "image/x-icon",
-    avif: "image/avif",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    ogg: "audio/ogg",
-    oga: "audio/ogg",
-    m4a: "audio/mp4",
-    aac: "audio/aac",
-    flac: "audio/flac",
-    mp4: "video/mp4",
-    webm: "video/webm",
-    ogv: "video/ogg",
-    mov: "video/quicktime",
-    m4v: "video/x-m4v",
-    txt: "text/plain",
-    log: "text/plain",
-    csv: "text/csv",
-    tsv: "text/tab-separated-values",
-    json: "application/json",
-    xml: "application/xml",
-    html: "text/html",
-    htm: "text/html",
-    css: "text/css",
-    js: "text/javascript"
-  };
-  const expected = mimeMap[ext];
-  if (expected && (!blob.type || blob.type === "application/octet-stream")) {
-    return new Blob([blob], { type: expected });
-  }
-  return blob;
-}
-
-function delimitedHtml(text, ext, escapeHtml) {
-  const rows = text.split(/\r?\n/).filter(r => r.length).slice(0, 200);
-  let delimiter = ext === "tsv" ? "\t" : ",";
-  if (ext === "csv" && rows.length && !rows[0].includes(",") && rows[0].includes(";")) {
-    delimiter = ";";
-  }
-  const cells = rows.map(row => {
-    const out = [];
-    let cell = "", quoted = false;
-    for (let i = 0; i < row.length; i++) {
-      const ch = row[i], next = row[i + 1];
-      if (ch === '"' && quoted && next === '"') { cell += '"'; i++; continue; }
-      if (ch === '"') { quoted = !quoted; continue; }
-      if (ch === delimiter && !quoted) { out.push(cell); cell = ""; continue; }
-      cell += ch;
-    }
-    out.push(cell);
-    return out.slice(0, 40);
-  });
-  if (!cells.length) return `<div class="preview-placeholder"><strong>Empty ${esc(ext.toUpperCase(), escapeHtml)} file</strong></div>`;
-  const maxCols = Math.max(1, Math.min(40, cells.reduce((m, r) => Math.max(m, r.length), 0)));
-  return `<div class="record-preview-table-wrap"><table class="record-preview-table"><tbody>${cells.map((row, i) => `<tr>${Array.from({ length: maxCols }, (_, j) => `<${i === 0 ? "th" : "td"}>${esc(row[j] ?? "", escapeHtml)}</${i === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-}
-
-async function renderSpreadsheet(zip, name, container, escapeHtml) {
-  const shared = [];
-  const sharedEntry = getZipEntry(zip, "xl/sharedStrings.xml");
-  if (sharedEntry) {
-    const sDoc = xmlDoc(await sharedEntry.async("text"));
-    for (const si of [...sDoc.getElementsByTagNameNS("*", "si")]) {
-      const str = [...si.getElementsByTagNameNS("*", "t")].map(t => t.textContent || "").join("");
-      shared.push(str);
-    }
-  }
-
-  const wb = xmlDoc(await readZipText(zip, "xl/workbook.xml"));
-  const relsEntry = getZipEntry(zip, "xl/_rels/workbook.xml.rels");
-  const relMap = new Map();
-  if (relsEntry) {
-    const rDoc = xmlDoc(await relsEntry.async("text"));
-    for (const r of [...rDoc.getElementsByTagNameNS("*", "Relationship")]) {
-      relMap.set(attr(r, "Id"), attr(r, "Target"));
-    }
-  }
-
-  const sheets = [...wb.getElementsByTagNameNS("*", "sheet")].map(s => ({
-    name: attr(s, "name") || "Sheet",
-    rid: s.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || attr(s, "r:id") || attr(s, "id")
-  }));
-  if (!sheets.length) throw new Error("Workbook contains no sheets");
-
-  async function loadSheetHtml(targetPath, activeSheetName) {
-    let normalized = targetPath.replace(/\\/g, "/").replace(/^\//, "");
-    if (!normalized.toLowerCase().startsWith("xl/")) normalized = `xl/${normalized}`;
-    const sheetXml = xmlDoc(await readZipText(zip, normalized));
-    const rows = [];
-    let maxCols = 0;
-
-    for (const row of [...sheetXml.getElementsByTagNameNS("*", "row")].slice(0, 180)) {
-      const cells = [];
-      for (const c of [...row.getElementsByTagNameNS("*", "c")]) {
-        const ref = attr(c, "r");
-        const m = ref.match(/([A-Z]+)/);
-        const col = m ? m[1].split("").reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1 : cells.length;
-        let value = "";
-        const t = attr(c, "t");
-        const vNode = c.getElementsByTagNameNS("*", "v")[0];
-        if (t === "s") {
-          value = shared[Number(vNode?.textContent || -1)] ?? "";
-        } else if (t === "inlineStr") {
-          value = [...c.getElementsByTagNameNS("*", "t")].map(x => x.textContent || "").join("");
-        } else if (t === "b") {
-          value = vNode?.textContent === "1" ? "TRUE" : "FALSE";
-        } else if (t === "e") {
-          value = vNode?.textContent || "#ERROR";
-        } else {
-          value = vNode?.textContent || [...c.getElementsByTagNameNS("*", "t")].map(x => x.textContent || "").join("");
-          if (!value) {
-            const fNode = c.getElementsByTagNameNS("*", "f")[0];
-            if (fNode?.textContent) value = `=${fNode.textContent}`;
-          }
-        }
-        cells[col] = value;
-      }
-      maxCols = Math.max(maxCols, cells.length);
-      rows.push(cells);
-    }
-
-    maxCols = Math.max(1, Math.min(35, maxCols));
-    const sheetOptions = sheets.map(s => `<option value="${esc(relMap.get(s.rid) || `worksheets/sheet1.xml`, escapeHtml)}" ${s.name === activeSheetName ? "selected" : ""}>${esc(s.name, escapeHtml)}</option>`).join("");
-    return `<div class="record-preview-table-wrap">
-      <div class="preview-office-toolbar">
-        <strong>${esc(name, escapeHtml)}</strong>
-        <div class="preview-sheet-switch">
-          <span>Sheets (${sheets.length}):</span>
-          <select class="settings-select preview-sheet-select">${sheetOptions}</select>
-        </div>
-      </div>
-      ${rows.length ? `<table class="record-preview-table spreadsheet-preview"><tbody>${rows.map((row, i) => `<tr>${Array.from({ length: maxCols }, (_, j) => `<${i === 0 ? "th" : "td"}>${esc(row[j] ?? "", escapeHtml)}</${i === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</tbody></table>` : `<div class="preview-placeholder"><strong>No readable cells found in this sheet</strong></div>`}
-    </div>`;
-  }
-
-  const initialTarget = relMap.get(sheets[0].rid) || "worksheets/sheet1.xml";
-  container.innerHTML = await loadSheetHtml(initialTarget, sheets[0].name);
-
-  container.querySelector(".preview-sheet-select")?.addEventListener("change", async e => {
-    const selectedTarget = e.target.value;
-    const selectedName = sheets.find(s => (relMap.get(s.rid) || "worksheets/sheet1.xml") === selectedTarget)?.name || "Sheet";
-    container.innerHTML = `<div class="preview-placeholder"><i class="fa-solid fa-spinner fa-spin"></i><strong>Switching sheet…</strong></div>`;
-    container.innerHTML = await loadSheetHtml(selectedTarget, selectedName);
-  });
-}
-
-async function renderDocx(zip, name, container, escapeHtml) {
-  const xml = xmlDoc(await readZipText(zip, "word/document.xml"));
-  const body = xml.getElementsByTagNameNS("*", "body")[0];
-  const blocks = [];
-
-  for (const child of [...(body?.children || [])]) {
-    const tag = child.localName;
-    if (tag === "tbl") {
-      const rows = [...child.getElementsByTagNameNS("*", "tr")].map(r => {
-        return [...r.getElementsByTagNameNS("*", "tc")].map(c => {
-          return [...c.getElementsByTagNameNS("*", "t")].map(t => t.textContent || "").join("");
-        });
-      });
-      blocks.push(`<table class="record-preview-table"><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c, escapeHtml)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
-    } else if (tag === "p") {
-      let pText = "";
-      for (const node of [...child.getElementsByTagNameNS("*", "*")]) {
-        if (node.localName === "t") pText += node.textContent || "";
-        else if (node.localName === "br" || node.localName === "cr") pText += "\n";
-        else if (node.localName === "tab") pText += "\t";
-      }
-      if (!pText.trim()) continue;
-      const pStyle = child.getElementsByTagNameNS("*", "pStyle")[0];
-      const sVal = pStyle?.getAttributeNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "val") || attr(pStyle, "w:val") || attr(pStyle, "val");
-      let nodeTag = "p";
-      if (/heading\s*1/i.test(sVal)) nodeTag = "h1";
-      else if (/heading\s*2/i.test(sVal)) nodeTag = "h2";
-      else if (/heading\s*3/i.test(sVal)) nodeTag = "h3";
-      blocks.push(`<${nodeTag}>${esc(pText, escapeHtml)}</${nodeTag}>`);
-    }
-  }
-
-  container.innerHTML = `<article class="record-preview-docx">
-    <div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>DOCX</span></div>
-    <div class="docx-content">${blocks.join("") || "<p>No readable document content found.</p>"}</div>
-  </article>`;
-}
-
-/* =========================================================================
-   PowerPoint Renderer: Handles both .pptx (OpenXML) and .ppt (Legacy Binary)
-   ========================================================================= */
-
-async function renderPptx(zip, name, container, escapeHtml) {
-  let cx = 12192000, cy = 6858000;
-  const presEntry = getZipEntry(zip, "ppt/presentation.xml");
-  if (presEntry) {
-    try {
-      const presentation = xmlDoc(await presEntry.async("text"));
-      const size = presentation.getElementsByTagNameNS("*", "sldSz")[0];
-      if (size) {
-        cx = parseEmu(attr(size, "cx")) || cx;
-        cy = parseEmu(attr(size, "cy")) || cy;
-      }
-    } catch {}
-  }
-
-  const paths = Object.keys(zip.files)
-    .filter(p => /(?:^|[\\/])ppt[\\/]slides[\\/]slide\d+\.xml$/i.test(p))
-    .sort((a, b) => {
-      const na = Number(a.match(/slide(\d+)/i)?.[1] || 0);
-      const nb = Number(b.match(/slide(\d+)/i)?.[1] || 0);
-      return na - nb;
-    });
-
-  if (!paths.length) throw new Error("No readable slides found in PPTX package");
-
-  const slides = [];
-  for (let i = 0; i < paths.length; i++) {
-    const slidePath = paths[i];
-    const xml = xmlDoc(await readZipText(zip, slidePath));
-    const items = [];
-
-    // Resolve slide-specific image relationships
-    const relsPath = slidePath.replace(/slide(\d+)\.xml$/i, "_rels/slide$1.xml.rels");
-    const relsEntry = getZipEntry(zip, relsPath);
-    const relMap = new Map();
-    if (relsEntry) {
-      try {
-        const rDoc = xmlDoc(await relsEntry.async("text"));
-        for (const rel of [...rDoc.getElementsByTagNameNS("*", "Relationship")]) {
-          const id = attr(rel, "Id");
-          let target = attr(rel, "Target");
-          if (target) {
-            target = target.replace(/\\/g, "/");
-            if (target.startsWith("../")) target = `ppt/${target.slice(3)}`;
-            else if (!target.startsWith("ppt/")) target = `ppt/slides/${target}`;
-            relMap.set(id, target);
-          }
-        }
-      } catch {}
-    }
-
-    // 1. Render Pictures (<p:pic>)
-    for (const pic of [...xml.getElementsByTagNameNS("*", "pic")]) {
-      const blip = pic.getElementsByTagNameNS("*", "blip")[0];
-      const rId = blip?.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed") || attr(blip, "r:embed") || attr(blip, "embed");
-      const imgPath = relMap.get(rId);
-      const imgEntry = imgPath ? getZipEntry(zip, imgPath) : null;
-      if (imgEntry) {
-        try {
-          const b64 = await imgEntry.async("base64");
-          const ext = extOf(imgPath);
-          const mime = ext === "png" ? "image/png" : (ext === "jpg" || ext === "jpeg") ? "image/jpeg" : ext === "svg" ? "image/svg+xml" : "image/png";
-          const dataUrl = `data:${mime};base64,${b64}`;
-
-          const xfrm = pic.getElementsByTagNameNS("*", "xfrm")[0];
-          const off = xfrm?.getElementsByTagNameNS("*", "off")[0];
-          const extNode = xfrm?.getElementsByTagNameNS("*", "ext")[0];
-          const wEmu = parseEmu(attr(extNode, "cx")), hEmu = parseEmu(attr(extNode, "cy"));
-          if (wEmu > 0 && hEmu > 0 && cx > 0 && cy > 0) {
-            const left = Math.max(0, Math.min(95, (parseEmu(attr(off, "x")) / cx) * 100));
-            const top = Math.max(0, Math.min(95, (parseEmu(attr(off, "y")) / cy) * 100));
-            const width = Math.max(4, Math.min(100 - left, (wEmu / cx) * 100));
-            const height = Math.max(3, Math.min(100 - top, (hEmu / cy) * 100));
-            items.push(`<img class="pptx-slide-image is-absolute" src="${dataUrl}" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(2)}%;" alt="Slide Graphic">`);
-          } else {
-            items.push(`<img class="pptx-slide-image is-flow" src="${dataUrl}" alt="Slide Graphic">`);
-          }
-        } catch {}
-      }
-    }
-
-    // 2. Render Text Shapes (<p:sp>)
-    for (const shape of [...xml.getElementsByTagNameNS("*", "sp")]) {
-      const paras = [...shape.getElementsByTagNameNS("*", "p")];
-      const lines = [];
-      for (const p of paras) {
-        const text = [...p.getElementsByTagNameNS("*", "t")].map(t => t.textContent || "").join("");
-        if (text.trim()) lines.push(text.trim());
-      }
-      const fullText = lines.join("\n");
-      if (!fullText) continue;
-
-      const xfrm = shape.getElementsByTagNameNS("*", "xfrm")[0];
-      const off = xfrm?.getElementsByTagNameNS("*", "off")[0];
-      const extNode = xfrm?.getElementsByTagNameNS("*", "ext")[0];
-      const wEmu = parseEmu(attr(extNode, "cx")), hEmu = parseEmu(attr(extNode, "cy"));
-
-      if (wEmu > 0 && hEmu > 0 && cx > 0 && cy > 0) {
-        const left = Math.max(0, Math.min(95, (parseEmu(attr(off, "x")) / cx) * 100));
-        const top = Math.max(0, Math.min(95, (parseEmu(attr(off, "y")) / cy) * 100));
-        const width = Math.max(5, Math.min(100 - left, (wEmu / cx) * 100));
-        const height = Math.max(3, Math.min(100 - top, (hEmu / cy) * 100));
-        items.push(`<div class="pptx-text-box is-absolute" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;width:${width.toFixed(2)}%;height:${height.toFixed(2)}%;">${esc(fullText, escapeHtml)}</div>`);
-      } else {
-        items.push(`<div class="pptx-text-box is-flow">${esc(fullText, escapeHtml)}</div>`);
-      }
-    }
-
-    // 3. Render Tables (<a:tbl>)
-    for (const tbl of [...xml.getElementsByTagNameNS("*", "tbl")]) {
-      const rows = [...tbl.getElementsByTagNameNS("*", "tr")].map(r => {
-        return [...r.getElementsByTagNameNS("*", "tc")].map(c => {
-          return [...c.getElementsByTagNameNS("*", "t")].map(t => t.textContent || "").join(" ").trim();
-        });
-      });
-      if (rows.length && rows.some(r => r.some(Boolean))) {
-        items.push(`<div class="pptx-table-wrap"><table class="record-preview-table"><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c, escapeHtml)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
-      }
-    }
-
-    slides.push(`<section class="pptx-slide-preview">
-      <div class="pptx-slide-number">SLIDE ${i + 1}</div>
-      <div class="pptx-slide-canvas" style="aspect-ratio:${cx}/${cy};">
-        ${items.join("") || '<div class="pptx-empty-slide">Empty slide or unrendered graphical element</div>'}
-      </div>
-    </section>`);
-  }
-
-  container.innerHTML = `<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${slides.length} slide${slides.length === 1 ? "" : "s"} (PPTX)</span></div>${slides.join("")}</div>`;
-}
-
-async function renderPptBinary(buffer, name, container, escapeHtml) {
-  const bytes = new Uint8Array(buffer);
-  const slides = [];
-  let currentSlideTexts = [];
-
-  function commitSlide() {
-    if (currentSlideTexts.length) {
-      slides.push([...currentSlideTexts]);
-      currentSlideTexts = [];
-    }
-  }
-
-  // Scan PowerPoint Binary Stream records for Slide Markers & Text Atoms
-  let pos = 0;
-  while (pos < bytes.length - 8) {
-    const recVer = bytes[pos] & 0x0F;
-    const recType = bytes[pos + 2] | (bytes[pos + 3] << 8);
-    const recLen = bytes[pos + 4] | (bytes[pos + 5] << 8) | (bytes[pos + 6] << 16) | (bytes[pos + 7] << 24);
-
-    if (recLen < 0 || pos + 8 + recLen > bytes.length) {
-      pos += 2;
-      continue;
-    }
-
-    // 1006 = RT_Slide, 4057 = RT_SlidePersistAtom
-    if (recType === 1006 || recType === 4057) {
-      commitSlide();
-    }
-    // 3999 = RT_TextCharsAtom (UTF-16LE text)
-    else if (recType === 3999 && recLen >= 2) {
-      let str = "";
-      for (let i = 0; i < recLen - 1; i += 2) {
-        const code = bytes[pos + 8 + i] | (bytes[pos + 8 + i + 1] << 8);
-        if (code >= 32 || code === 10 || code === 13) str += String.fromCharCode(code);
-      }
-      const trimmed = str.trim();
-      if (trimmed.length > 1 && !currentSlideTexts.includes(trimmed)) {
-        currentSlideTexts.push(trimmed);
-      }
-    }
-    // 4000 = RT_TextBytesAtom (ASCII text)
-    else if (recType === 4000 && recLen >= 1) {
-      let str = "";
-      for (let i = 0; i < recLen; i++) {
-        const code = bytes[pos + 8 + i];
-        if (code >= 32 || code === 10 || code === 13) str += String.fromCharCode(code);
-      }
-      const trimmed = str.trim();
-      if (trimmed.length > 1 && !currentSlideTexts.includes(trimmed)) {
-        currentSlideTexts.push(trimmed);
-      }
-    }
-
-    if (recVer === 0x0F) pos += 8; // Container: step inside
-    else pos += 8 + recLen;        // Atom: skip body
-  }
-  commitSlide();
-
-  // Fallback: If no structured slide container matched, extract coherent printable runs
-  if (!slides.length) {
-    const rawMatches = [];
-    let asciiRun = "";
-    for (let i = 0; i < bytes.length; i++) {
-      const c = bytes[i];
-      if ((c >= 32 && c <= 126) || c === 10 || c === 13) {
-        asciiRun += String.fromCharCode(c);
-      } else {
-        if (asciiRun.trim().length >= 4) rawMatches.push(asciiRun.trim());
-        asciiRun = "";
-      }
-    }
-    if (rawMatches.length) {
-      for (let i = 0; i < rawMatches.length; i += 6) {
-        slides.push(rawMatches.slice(i, i + 6));
-      }
-    }
-  }
-
-  if (!slides.length) {
-    throw new Error("No readable slides or presentation text records found in legacy PPT file");
-  }
-
-  const slideHtml = slides.map((texts, idx) => `
-    <section class="pptx-slide-preview">
-      <div class="pptx-slide-number">SLIDE ${idx + 1}</div>
-      <div class="pptx-slide-canvas is-flow">
-        ${texts.map(t => `<div class="pptx-text-box is-flow">${esc(t, escapeHtml)}</div>`).join("")}
-      </div>
-    </section>
-  `).join("");
-
-  container.innerHTML = `<div class="record-preview-pptx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${slides.length} slide${slides.length === 1 ? "" : "s"} (PowerPoint 97–2003)</span></div>${slideHtml}</div>`;
-}
-
-async function renderZipManifest(zip, name, container, escapeHtml) {
-  const files = Object.values(zip.files).filter(x => !x.dir).slice(0, 300);
-  container.innerHTML = `<div class="record-preview-table-wrap">
-    <div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${files.length} file${files.length === 1 ? "" : "s"} in archive</span></div>
-    <table class="record-preview-table">
-      <thead><tr><th>Path</th><th>Compressed</th><th>Uncompressed</th></tr></thead>
-      <tbody>${files.map(x => `<tr><td>${esc(x.name, escapeHtml)}</td><td>${esc(x._data?.compressedSize ? `${(x._data.compressedSize / 1024).toFixed(1)} KB` : "—", escapeHtml)}</td><td>${esc(x._data?.uncompressedSize ? `${(x._data.uncompressedSize / 1024).toFixed(1)} KB` : "—", escapeHtml)}</td></tr>`).join("")}</tbody>
-    </table>
-  </div>`;
-}
-
-async function renderOpenDocument(zip, name, ext, container, escapeHtml) {
-  const xml = xmlDoc(await readZipText(zip, "content.xml"));
-  if (ext === "ods") {
-    const rows = [];
-    for (const r of [...xml.getElementsByTagNameNS("*", "table-row")].slice(0, 160)) {
-      const vals = [...r.getElementsByTagNameNS("*", "table-cell")].map(c => [...c.getElementsByTagNameNS("*", "p")].map(p => p.textContent || "").join(" ").trim());
-      if (vals.some(Boolean)) rows.push(vals);
-    }
-    const cols = Math.min(30, rows.reduce((m, r) => Math.max(m, r.length), 0));
-    container.innerHTML = `<div class="record-preview-table-wrap"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>ODS Spreadsheet</span></div><table class="record-preview-table"><tbody>${rows.map((r, i) => `<tr>${Array.from({ length: cols }, (_, j) => `<${i === 0 ? "th" : "td"}>${esc(r[j] ?? "", escapeHtml)}</${i === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-    return;
-  }
-
-  const body = xml.getElementsByTagNameNS("*", "body")[0];
-  const items = [];
-  for (const node of [...(body?.getElementsByTagNameNS("*", "*") || [])]) {
-    if (node.localName === "h") {
-      const txt = node.textContent?.trim();
-      if (txt) items.push(`<h2>${esc(txt, escapeHtml)}</h2>`);
-    } else if (node.localName === "p") {
-      const txt = node.textContent?.trim();
-      if (txt) items.push(`<p>${esc(txt, escapeHtml)}</p>`);
-    }
-  }
-
-  container.innerHTML = `<article class="record-preview-docx"><div class="preview-office-toolbar"><strong>${esc(name, escapeHtml)}</strong><span>${ext.toUpperCase()}</span></div><div class="docx-content">${items.join("") || "<p>No readable OpenDocument content found.</p>"}</div></article>`;
-}
-
-function detect(ext, mime) {
-  if (IMAGE.has(ext) || mime.startsWith("image/")) return "image";
-  if (ext === "pdf" || mime === "application/pdf") return "pdf";
-  if (AUDIO.has(ext) || mime.startsWith("audio/")) return "audio";
-  if (VIDEO.has(ext) || mime.startsWith("video/")) return "video";
-  if (ext === "csv" || ext === "tsv" || mime.includes("csv") || mime.includes("tab-separated")) return "table";
-  if (TEXT.has(ext) || mime.startsWith("text/")) return "text";
-  if (SHEETS.has(ext)) return "spreadsheet";
-  if (DOCS.has(ext)) return "document";
-  if (PPTS.has(ext) || mime.includes("presentation") || mime.includes("powerpoint")) return "presentation";
-  if (["odt", "ods", "odp"].includes(ext)) return "opendocument";
-  if (ARCHIVES.has(ext) || mime === "application/zip" || mime === "application/epub+zip") return "archive";
+function detect(ext,mime){
+  if(IMAGE.has(ext)||mime.startsWith("image/"))return "image";
+  if(ext==="pdf"||mime==="application/pdf")return "pdf";
+  if(AUDIO.has(ext)||mime.startsWith("audio/"))return "audio";
+  if(VIDEO.has(ext)||mime.startsWith("video/"))return "video";
+  if(ext==="csv"||ext==="tsv"||mime.includes("csv")||mime.includes("tab-separated"))return "table";
+  if(TEXT.has(ext)||mime.startsWith("text/"))return "text";
+  if(SHEETS.has(ext))return "spreadsheet";
+  if(DOCS.has(ext))return "document";
+  if(PPTS.has(ext))return "presentation";
+  if(["odt","ods","odp"].includes(ext))return "opendocument";
+  if(ARCHIVES.has(ext)||mime==="application/zip"||mime==="application/epub+zip")return "archive";
   return "fallback";
 }
+function isZipFormat(ext,mime){return OFFICE_ZIP.has(ext)||ARCHIVES.has(ext)||mime==="application/zip"||mime==="application/epub+zip"}
+async function inspectZip(blob,ext,mime){
+  if(!isZipFormat(ext,mime))return null;
+  const buf=await blob.arrayBuffer(),bytes=new Uint8Array(buf),hasLocal=bytes.length>=4&&bytes[0]===0x50&&bytes[1]===0x4b&&(bytes[2]===0x03||bytes[2]===0x05||bytes[2]===0x07);
+  if(!hasLocal)throw new Error(`Binary integrity check failed for .${ext||"package"}: ZIP signature is missing (stored ${bytes.length} bytes).`);
+  try{return await zipLib().loadAsync(buf)}catch(error){throw new Error(`Binary integrity check failed for .${ext}: ${error?.message||"ZIP package is invalid"}`)}
+}
+function fallbackHtml(name,type,escapeHtml){return `<div class="preview-placeholder preview-file-fallback"><i class="fa-solid fa-file-lines"></i><strong>${esc(type,escapeHtml)} file</strong><span class="preview-fallback-name">${esc(name,escapeHtml)}</span><span>This file is stored correctly, but this browser workspace does not provide a safe visual renderer for this format. The original file remains available for download.</span><div class="preview-fallback-actions"><button type="button" class="btn btn-dark" data-preview-download><i class="fa-solid fa-download"></i> Download File</button></div></div>`}
 
-function isZipFormat(ext, mime) {
-  return OFFICE_ZIP.has(ext) || ARCHIVES.has(ext) || mime === "application/zip" || mime === "application/epub+zip";
+export async function resolvePreviewFile(baseKey){
+  const canonical=String(baseKey||"").split("::v::")[0];
+  if(!canonical)throw new Error("Preview file identity is missing");
+  const record=await getLatestFile(canonical);
+  if(!record?.blob)throw new Error("Stored binary is unavailable for this document slot");
+  if(Number.isFinite(Number(record.size))&&record.blob.size!==Number(record.size))throw new Error(`Stored binary size mismatch: metadata=${record.size}, reconstructed=${record.blob.size}`);
+  return {...record,key:record.key||canonical,baseKey:canonical};
 }
 
-function fallbackHtml(name, type, escapeHtml) {
-  return `<div class="preview-placeholder preview-file-fallback">
-    <i class="fa-solid fa-file-lines"></i>
-    <strong>${esc(type, escapeHtml)} file</strong>
-    <span class="preview-fallback-name">${esc(name, escapeHtml)}</span>
-    <span>No safe in-browser renderer is available for this format. You can download the intact file directly to your system.</span>
-    <div class="preview-fallback-actions">
-      <button type="button" class="btn btn-dark" data-preview-download><i class="fa-solid fa-download"></i> Download File</button>
-    </div>
-  </div>`;
+export async function renderPreview({blob,name,container,escapeHtml,onDownload}){
+  if(!blob||!container)throw new Error("Preview target is unavailable");
+  const previous=container.dataset.previewObjectUrl;if(previous){try{URL.revokeObjectURL(previous)}catch{}}delete container.dataset.previewObjectUrl;
+  const objectUrl=()=>{const url=URL.createObjectURL(blob);container.dataset.previewObjectUrl=url;return url};
+  const ext=extOf(name),mime=(blob.type||"").toLowerCase(),kind=detect(ext,mime);
+  if(isZipFormat(ext,mime))await inspectZip(blob,ext,mime);
+  if(kind==="image"){container.innerHTML=`<img class="record-preview-image" src="${objectUrl()}" alt="${esc(name,escapeHtml)}">`;return {kind,ext}}
+  if(kind==="pdf"){container.innerHTML=`<iframe class="record-preview-frame" src="${objectUrl()}" title="PDF preview"></iframe>`;return {kind,ext}}
+  if(kind==="audio"){const url=objectUrl();container.innerHTML=`<div class="preview-media"><i class="fa-solid fa-volume-high"></i><strong>${esc(name,escapeHtml)}</strong><audio controls preload="metadata" src="${url}"></audio></div>`;return {kind,ext}}
+  if(kind==="video"){const url=objectUrl();container.innerHTML=`<div class="preview-media"><video controls preload="metadata" src="${url}"></video><strong>${esc(name,escapeHtml)}</strong></div>`;return {kind,ext}}
+  if(kind==="table"){container.innerHTML=delimitedHtml(await blob.text(),ext||"csv",escapeHtml);return {kind,ext}}
+  if(kind==="text"){container.innerHTML=`<pre class="record-preview-text">${esc((await blob.text()).slice(0,250000),escapeHtml)}</pre>`;return {kind,ext}}
+  if(kind==="spreadsheet"){await renderSpreadsheet(blob,name,container,escapeHtml);return {kind,ext}}
+  if(kind==="document"){await renderDocx(blob,name,container,escapeHtml);return {kind,ext}}
+  if(kind==="presentation"){await renderPptx(blob,name,container,escapeHtml);return {kind,ext}}
+  if(kind==="opendocument"){await renderOpenDocument(blob,name,ext,container,escapeHtml);return {kind,ext}}
+  if(kind==="archive"){await renderZipManifest(blob,name,container,escapeHtml);return {kind,ext}}
+  container.innerHTML=fallbackHtml(name,(ext||mime.split("/").pop()||"file").toUpperCase(),escapeHtml);container.querySelector("[data-preview-download]")?.addEventListener("click",()=>onDownload?.());return {kind,ext};
 }
 
-export async function resolvePreviewFile(baseKey) {
-  const canonical = String(baseKey || "").split("::v::")[0];
-  if (!canonical) throw new Error("Preview file identity is missing");
-  let record = await getLatestFile(canonical);
-  if (!record?.blob) record = await getFile(baseKey);
-  if (!record?.blob && baseKey !== canonical) record = await getFile(canonical);
-  if (!record?.blob) throw new Error("Stored binary is unavailable for this document slot");
-  return { ...record, key: record.key || canonical, baseKey: canonical };
-}
-
-export async function renderPreview({ blob, name, container, escapeHtml, onDownload }) {
-  if (!blob || !container) throw new Error("Preview target is unavailable");
-  clearPreviewContainer(container);
-
-  const ext = extOf(name);
-  const mime = (blob.type || "").toLowerCase();
-  const normalizedBlob = ensureMimeBlob(blob, ext);
-  const kind = detect(ext, normalizedBlob.type?.toLowerCase() || mime);
-
-  const objectUrl = () => {
-    const url = URL.createObjectURL(normalizedBlob);
-    container.dataset.previewObjectUrl = url;
-    return url;
-  };
-
-  if (kind === "image") {
-    container.innerHTML = `<img class="record-preview-image" src="${objectUrl()}" alt="${esc(name, escapeHtml)}">`;
-    return { kind, ext };
-  }
-  if (kind === "pdf") {
-    container.innerHTML = `<iframe class="record-preview-frame" src="${objectUrl()}" title="PDF preview"></iframe>`;
-    return { kind, ext };
-  }
-  if (kind === "audio") {
-    container.innerHTML = `<div class="preview-media"><i class="fa-solid fa-volume-high"></i><strong>${esc(name, escapeHtml)}</strong><audio controls preload="metadata" src="${objectUrl()}"></audio></div>`;
-    return { kind, ext };
-  }
-  if (kind === "video") {
-    container.innerHTML = `<div class="preview-media"><video controls preload="metadata" src="${objectUrl()}"></video><strong>${esc(name, escapeHtml)}</strong></div>`;
-    return { kind, ext };
-  }
-  if (kind === "table") {
-    container.innerHTML = delimitedHtml(await normalizedBlob.text(), ext || "csv", escapeHtml);
-    return { kind, ext };
-  }
-  if (kind === "text") {
-    let raw = (await normalizedBlob.text()).slice(0, 300000);
-    if (ext === "json") {
-      try { raw = JSON.stringify(JSON.parse(raw), null, 2); } catch {}
-    }
-    container.innerHTML = `<pre class="record-preview-text">${esc(raw, escapeHtml)}</pre>`;
-    return { kind, ext };
-  }
-
-  // Handle Presentations (PPTX & PPT)
-  if (kind === "presentation") {
-    const buf = await normalizedBlob.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    const isZip = bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B;
-
-    if (isZip) {
-      const zipPackage = await zipLib().loadAsync(buf);
-      await renderPptx(zipPackage, name, container, escapeHtml);
-    } else {
-      await renderPptBinary(buf, name, container, escapeHtml);
-    }
-    return { kind, ext };
-  }
-
-  // Handle Other ZIP-based Packages
-  let zipPackage = null;
-  if (isZipFormat(ext, mime)) {
-    try {
-      const buf = await normalizedBlob.arrayBuffer();
-      zipPackage = await zipLib().loadAsync(buf);
-    } catch (err) {
-      console.warn("Package is not a standard ZIP archive", err);
-    }
-  }
-
-  if (zipPackage) {
-    if (kind === "spreadsheet") {
-      await renderSpreadsheet(zipPackage, name, container, escapeHtml);
-      return { kind, ext };
-    }
-    if (kind === "document") {
-      await renderDocx(zipPackage, name, container, escapeHtml);
-      return { kind, ext };
-    }
-    if (kind === "opendocument") {
-      await renderOpenDocument(zipPackage, name, ext, container, escapeHtml);
-      return { kind, ext };
-    }
-    if (kind === "archive") {
-      await renderZipManifest(zipPackage, name, container, escapeHtml);
-      return { kind, ext };
-    }
-  }
-
-  container.innerHTML = fallbackHtml(name, (ext || mime.split("/").pop() || "file").toUpperCase(), escapeHtml);
-  container.querySelector("[data-preview-download]")?.addEventListener("click", () => onDownload?.());
-  return { kind, ext };
-}
-
-export function clearPreviewContainer(container) {
-  if (!container) return;
-  const url = container.dataset.previewObjectUrl;
-  if (url) {
-    try { URL.revokeObjectURL(url); } catch {}
-  }
-  delete container.dataset.previewObjectUrl;
-  container.innerHTML = "";
+export function clearPreviewContainer(container){
+  if(!container)return;
+  const url=container.dataset.previewObjectUrl;if(url){try{URL.revokeObjectURL(url)}catch{}}delete container.dataset.previewObjectUrl;container.innerHTML="";
 }
